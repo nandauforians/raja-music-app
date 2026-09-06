@@ -1,0 +1,978 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Ilayaraja Daily Music Discovery App - Serverless Infrastructure
+Parameters:
+  AppName:
+    Type: String
+    Default: ilayaraja-app
+    Description: Application name for resource naming
+  AdminApiKey:
+    Type: String
+    NoEcho: true
+    Description: Secret API key for admin endpoints
+  SpotifyClientId:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Spotify Client ID for search API
+  SpotifyClientSecret:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Spotify Client Secret for search API
+  GoogleClientId:
+    Type: String
+    Default: ''
+    Description: Google Client ID for Admin OAuth
+  GeminiApiKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Gemini API Key for dynamic song trivia
+  MongoDbUri:
+    Type: String
+    NoEcho: true
+    Description: MongoDB Atlas Connection URI
+  DomainName:
+    Type: String
+    Default: music.uforiansports.com
+    Description: Domain name for CORS
+  CloudFrontPrivateKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Private key for signing CloudFront URLs
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues:
+    - development
+    - staging
+    - production
+    Description: Environment name
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    Runtime: nodejs20.x
+    Environment:
+      Variables:
+        MONGODB_URI:
+          Ref: MongoDbUri
+        ADMIN_API_KEY:
+          Ref: AdminApiKey
+        DOMAIN_NAME:
+          Ref: DomainName
+        NODE_ENV:
+          Ref: Environment
+        GOOGLE_CLIENT_ID:
+          Ref: GoogleClientId
+        GEMINI_API_KEY:
+          Ref: GeminiApiKey
+        CLOUDFRONT_KEY_PAIR_ID:
+          Ref: AudioCloudFrontPublicKey
+        CLOUDFRONT_PRIVATE_KEY:
+          Ref: CloudFrontPrivateKey
+Resources:
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name:
+        Fn::Sub: ${AppName}-api
+      StageName:
+        Ref: Environment
+      Cors:
+        AllowMethods: '''GET,POST,OPTIONS,DELETE,PUT,PATCH'''
+        AllowHeaders: '''Content-Type,Authorization,x-user-id'''
+        AllowOrigin: '''*'''
+        MaxAge: '''3600'''
+  GetSongOfDayFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-get-song-of-day
+      CodeUri: GetSongOfDayFunction
+      Handler: lambda_functions.getSongOfDay
+      Events:
+        GetSongApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /song/today
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetSongOfDayFunction
+  GetArchiveFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-get-archive
+      CodeUri: GetArchiveFunction
+      Handler: lambda_functions.getArchive
+      Events:
+        GetArchiveApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /song/archive
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetArchiveFunction
+  ScoreVocalFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-score-vocal
+      CodeUri: ScoreVocalFunction
+      Handler: lambda_functions.scoreVocal
+      Events:
+        ScoreVocalApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /song/score
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: ScoreVocalFunction
+  ScheduleSongFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-schedule-song
+      CodeUri: ScheduleSongFunction
+      Handler: lambda_functions.scheduleSong
+      Events:
+        ScheduleSongApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/schedule
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: ScheduleSongFunction
+  ListScheduleFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-list-schedule
+      CodeUri: ListScheduleFunction
+      Handler: lambda_functions.listSchedule
+      Events:
+        ListScheduleApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/schedule
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: ListScheduleFunction
+  GetSongListFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-get-song-list
+      CodeUri: GetSongListFunction
+      Handler: lambda_functions.getSongList
+      Events:
+        GetSongListApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /songs/list
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetSongListFunction
+  HealthCheckFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-health
+      CodeUri: HealthCheckFunction
+      Handler: lambda_functions.health
+      Events:
+        HealthApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /health
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: HealthCheckFunction
+  SeedDatabaseFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-seed-database
+      CodeUri: SeedDatabaseFunction
+      Handler: lambda_functions.seedDatabase
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: SeedDatabaseFunction
+  ResetScheduleFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-reset-schedule
+      CodeUri: ResetScheduleFunction
+      Handler: lambda_functions.resetSchedule
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: ResetScheduleFunction
+  AddSongFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-add-song
+      CodeUri: AddSongFunction
+      Handler: lambda_functions.addSong
+      Events:
+        AddSongApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/songs
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: AddSongFunction
+  UpdateSongFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-update-song
+      CodeUri: UpdateSongFunction
+      Handler: lambda_functions.updateSong
+      Events:
+        UpdateSongApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/songs/{id}
+            Method: PATCH
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: UpdateSongFunction
+  SearchYouTubeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-search-youtube
+      CodeUri: SearchYouTubeFunction
+      Handler: lambda_functions.searchYouTube
+      Events:
+        SearchYouTubeApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/youtube-search
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: SearchYouTubeFunction
+  RemoveSongFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-remove-song
+      CodeUri: RemoveSongFunction
+      Handler: lambda_functions.removeSong
+      Events:
+        RemoveSongApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/songs/{id}
+            Method: DELETE
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: RemoveSongFunction
+  UpdateKaraokeUrlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-update-karaoke-url
+      CodeUri: UpdateKaraokeUrlFunction
+      Handler: lambda_functions.updateKaraokeUrl
+      Events:
+        UpdateKaraokeUrlApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/songs/{id}/karaoke
+            Method: PATCH
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: UpdateKaraokeUrlFunction
+  GetKaraokeUploadUrlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-get-karaoke-upload-url
+      CodeUri: GetKaraokeUploadUrlFunction
+      Handler: lambda_functions.getKaraokeUploadUrl
+      Events:
+        GetKaraokeUploadUrlApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/karaoke-upload-url
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetKaraokeUploadUrlFunction
+  SearchSpotifyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-search-spotify
+      CodeUri: SearchSpotifyFunction
+      Handler: lambda_functions.searchSpotify
+      Environment:
+        Variables:
+          SPOTIFY_CLIENT_ID:
+            Ref: SpotifyClientId
+          SPOTIFY_CLIENT_SECRET:
+            Ref: SpotifyClientSecret
+      Events:
+        SearchSpotifyApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/search
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: SearchSpotifyFunction
+  GetLeaderboardsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-leaderboards
+      CodeUri: GetLeaderboardsFunction
+      Handler: lambda_functions.getLeaderboards
+      Events:
+        LeaderboardsApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /users/rankings
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetLeaderboardsFunction
+  TrackActivityFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-track-activity
+      CodeUri: TrackActivityFunction
+      Handler: lambda_functions.trackActivity
+      Events:
+        TrackActivityApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /activity/track
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: TrackActivityFunction
+  TrackPlaybackFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-track-playback
+      CodeUri: TrackPlaybackFunction
+      Handler: lambda_functions.trackPlayback
+      Events:
+        TrackPlaybackApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /song/track-playback
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: TrackPlaybackFunction
+  RateSongFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-rate-song
+      CodeUri: RateSongFunction
+      Handler: lambda_functions.rateSong
+      Events:
+        RateSongApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /rate
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: RateSongFunction
+  GetUserRatingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-get-user-rating
+      CodeUri: GetUserRatingFunction
+      Handler: lambda_functions.getUserRating
+      Events:
+        GetUserRatingApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /song/rating
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetUserRatingFunction
+  GetTopRatedSongsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-get-top-rated-songs
+      CodeUri: GetTopRatedSongsFunction
+      Handler: lambda_functions.getTopRatedSongs
+      Events:
+        GetTopRatedSongsApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /songs/top-rated
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetTopRatedSongsFunction
+  SaveRecordingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-save-recording
+      CodeUri: SaveRecordingFunction
+      Handler: lambda_functions.saveRecording
+      Policies:
+      - S3CrudPolicy:
+          BucketName:
+            Ref: UserRecordingsBucket
+      Environment:
+        Variables:
+          RECORDINGS_BUCKET:
+            Ref: UserRecordingsBucket
+      Events:
+        SaveRecordingApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /song/recording/save
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: SaveRecordingFunction
+  GetUserRecordingsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-get-user-recordings
+      CodeUri: GetUserRecordingsFunction
+      Handler: lambda_functions.getUserRecordings
+      Environment:
+        Variables:
+          RECORDINGS_BUCKET:
+            Ref: UserRecordingsBucket
+      Policies:
+      - S3ReadPolicy:
+          BucketName:
+            Ref: UserRecordingsBucket
+      Events:
+        GetUserRecordingsApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /user/recordings
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetUserRecordingsFunction
+  UserStatsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-user-stats
+      CodeUri: UserStatsFunction
+      Handler: lambda_functions.getUserStats
+      Environment:
+        Variables:
+          RECORDINGS_BUCKET:
+            Ref: UserRecordingsBucket
+      Events:
+        UserStatsApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /user/stats
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: UserStatsFunction
+  AdminGamificationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-admin-gamification
+      CodeUri: AdminGamificationFunction
+      Handler: lambda_functions.getAdminGamification
+      Events:
+        AdminGamificationApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/gamification
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: AdminGamificationFunction
+  UserProfileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-user-profile
+      CodeUri: UserProfileFunction
+      Handler: lambda_functions.updateUserProfile
+      Events:
+        UserProfileApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /user/profile
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: UserProfileFunction
+  AdminPayoutFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-admin-payout
+      CodeUri: AdminPayoutFunction
+      Handler: lambda_functions.adminPayout
+      Events:
+        AdminPayoutApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/payout
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: AdminPayoutFunction
+  RequestIncentiveFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-request-incentive
+      CodeUri: RequestIncentiveFunction
+      Handler: lambda_functions.requestIncentive
+      Events:
+        RequestIncentiveApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /incentive/request
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: RequestIncentiveFunction
+  GetIncentiveRequestsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-get-incentive-requests
+      CodeUri: GetIncentiveRequestsFunction
+      Handler: lambda_functions.getIncentiveRequests
+      Events:
+        GetIncentiveRequestsApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/incentives
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetIncentiveRequestsFunction
+  ApproveIncentiveFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-approve-incentive
+      CodeUri: ApproveIncentiveFunction
+      Handler: lambda_functions.approveIncentive
+      Events:
+        ApproveIncentiveApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/incentives/approve
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: ApproveIncentiveFunction
+  RejectIncentiveFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-reject-incentive
+      CodeUri: RejectIncentiveFunction
+      Handler: lambda_functions.rejectIncentive
+      Events:
+        RejectIncentiveApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/incentives/reject
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: RejectIncentiveFunction
+  UserRecordingsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: ${AppName}-recordings-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+        - AllowedHeaders:
+          - '*'
+          AllowedMethods:
+          - GET
+          - PUT
+          - POST
+          - DELETE
+          - HEAD
+          AllowedOrigins:
+          - Fn::Sub: https://${DomainName}
+          - http://localhost:5173
+          - http://localhost:3000
+          ExposedHeaders:
+          - ETag
+          MaxAge: 3600
+      Tags:
+      - Key: Environment
+        Value:
+          Ref: Environment
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: ${AppName}-frontend-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      Tags:
+      - Key: Environment
+        Value:
+          Ref: Environment
+  AudioCloudFrontPublicKey:
+    Type: AWS::CloudFront::PublicKey
+    Properties:
+      PublicKeyConfig:
+        CallerReference: audio-public-key
+        EncodedKey: '-----BEGIN PUBLIC KEY-----
+
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAx1fFz1Pcw+WQZcKpaks4
+
+          P2WEY8xcEjsY3xDzfmNn+EPcTy5k4F9MqQjqh0OO85y2txCNKDRdpoPjEKfExGzU
+
+          jM9tPKqLi23O5pvO4rUFPL3bBHmdJP3HD4ch7B/LJ4OWWUzx4wvQQ3HhM1epBXMH
+
+          xgdnR4WsOMzz9BFXv4/xptcdrATbt3TRNr6CbvW4wAhs/isDre5fbGP6IbjuA3rF
+
+          xxsLqTrcrDQpDW1Z9zVOhxasD8flGdUymLWJ50VveMm/BwYa0L40QX+Tb0btas3y
+
+          Fzsr6SiYc+E2T/9DG6RhOQx5ZzT3UrOLbpDuDiTCkkME1nYungkNNox3Ie+5x7Hy
+
+          3wIDAQAB
+
+          -----END PUBLIC KEY-----
+
+          '
+        Name: audio-public-key
+  AudioKeyGroup:
+    Type: AWS::CloudFront::KeyGroup
+    Properties:
+      KeyGroupConfig:
+        Name: audio-key-group
+        Items:
+        - Ref: AudioCloudFrontPublicKey
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2and3
+        Comment:
+          Fn::Sub: ${AppName} CDN
+        Aliases:
+        - music.uforiansports.com
+        ViewerCertificate:
+          AcmCertificateArn: arn:aws:acm:us-east-1:274345729498:certificate/284e3f32-bd69-4157-a0c8-7fa00562679a
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        DefaultCacheBehavior:
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          TargetOriginId: FrontendOrigin
+          AllowedMethods:
+          - GET
+          - HEAD
+          - OPTIONS
+          CachedMethods:
+          - GET
+          - HEAD
+        CacheBehaviors:
+        - PathPattern: '*.mp3'
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          TargetOriginId: AudioOrigin
+          TrustedKeyGroups:
+          - Ref: AudioKeyGroup
+          AllowedMethods:
+          - GET
+          - HEAD
+          - OPTIONS
+        - PathPattern: source/*
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          TargetOriginId: AudioOrigin
+          TrustedKeyGroups:
+          - Ref: AudioKeyGroup
+          AllowedMethods:
+          - GET
+          - HEAD
+          - OPTIONS
+        - PathPattern: /index.html
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          TargetOriginId: FrontendOrigin
+          AllowedMethods:
+          - GET
+          - HEAD
+          - OPTIONS
+        Origins:
+        - Id: FrontendOrigin
+          S3OriginConfig:
+            OriginAccessIdentity:
+              Fn::Sub: origin-access-identity/cloudfront/${CloudFrontOAI}
+          DomainName:
+            Fn::GetAtt:
+            - FrontendBucket
+            - DomainName
+        - Id: AudioOrigin
+          S3OriginConfig:
+            OriginAccessIdentity:
+              Fn::Sub: origin-access-identity/cloudfront/${CloudFrontOAI}
+          DomainName: uforian-karaoke-tracks.s3.amazonaws.com
+        DefaultRootObject: index.html
+        CustomErrorResponses:
+        - ErrorCode: 404
+          ResponseCode: 200
+          ResponsePagePath: /index.html
+        - ErrorCode: 403
+          ResponseCode: 200
+          ResponsePagePath: /index.html
+      Tags:
+      - Key: Environment
+        Value:
+          Ref: Environment
+  CloudFrontOAI:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment:
+          Fn::Sub: OAI for ${AppName}
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: FrontendBucket
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            AWS:
+              Fn::Sub: arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity
+                ${CloudFrontOAI}
+          Action: s3:GetObject
+          Resource:
+            Fn::Sub: ${FrontendBucket.Arn}/*
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName:
+        Fn::Sub: ${AppName}-lambda-errors
+      AlarmDescription: Alert when Lambda functions error
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/apigateway/${AppName}
+      RetentionInDays: 30
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value:
+      Fn::Sub: https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+    Export:
+      Name:
+        Fn::Sub: ${AppName}-api-endpoint
+  FrontendBucketName:
+    Description: S3 bucket for frontend deployment
+    Value:
+      Ref: FrontendBucket
+    Export:
+      Name:
+        Fn::Sub: ${AppName}-bucket
+  CloudFrontDomain:
+    Description: CloudFront distribution domain
+    Value:
+      Fn::GetAtt:
+      - CloudFrontDistribution
+      - DomainName
+    Export:
+      Name:
+        Fn::Sub: ${AppName}-cdn-domain
+  GetSongFunctionArn:
+    Description: ARN of getSongOfDay Lambda function
+    Value:
+      Fn::GetAtt:
+      - GetSongOfDayFunction
+      - Arn
+  ScheduleSongFunctionArn:
+    Description: ARN of scheduleSong Lambda function
+    Value:
+      Fn::GetAtt:
+      - ScheduleSongFunction
+      - Arn

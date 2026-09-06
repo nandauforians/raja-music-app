@@ -1,0 +1,31 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "lambda_functions.js",
+  "scripts": {
+    "test": "MONGODB_URI=mongodb://mockdb GEMINI_API_KEY=mock vitest run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@aws-sdk/client-ecs": "^3.1127.0",
+    "@aws-sdk/client-s3": "^3.1118.0",
+    "@aws-sdk/client-sqs": "^3.1127.0",
+    "@aws-sdk/cloudfront-signer": "^3.1125.0",
+    "@aws-sdk/s3-request-presigner": "^3.1118.0",
+    "@google/genai": "^2.18.0",
+    "@google/generative-ai": "^0.24.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "google-auth-library": "^10.9.1",
+    "mongodb": "^6.21.0",
+    "yt-search": "^2.13.1"
+  },
+  "devDependencies": {
+    "supertest": "^7.2.2",
+    "vitest": "^4.1.11"
+  }
+}

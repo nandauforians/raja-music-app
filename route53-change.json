@@ -1,0 +1,12 @@
+{
+  "Comment": "CREATE/UPDATE/DELETE CNAME record for ACM validation",
+  "Changes": [{
+    "Action": "UPSERT",
+    "ResourceRecordSet": {
+      "Name": "_1917904b005297858f5a3d8b6bcc8067.music.uforiansports.com.",
+      "Type": "CNAME",
+      "TTL": 300,
+      "ResourceRecords": [{ "Value": "_9f6162761bc4eefd393e3cb8d8b228ad.jkddzztszm.acm-validations.aws."}]
+    }
+  }]
+}

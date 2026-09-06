@@ -519,7 +519,7 @@ exports.removeSong = async (event) => {
 // ============================================================================
 exports.searchSpotify = async (event) => {
   try {
-    await verifyAdminToken(event);
+    // await verifyAdminToken(event); // Removed so normal users can suggest songs
     const query = event.queryStringParameters?.q;
     if (!query) throw new Error("Search query required");
 
@@ -538,7 +538,9 @@ exports.searchSpotify = async (event) => {
     const tokenData = await tokenRes.json();
     const token = tokenData.access_token;
 
-    const searchRes = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=10`, {
+    // Append artist filter to restrict results to Ilayaraja
+    const spotifyQuery = `${query} artist:Ilayaraja`;
+    const searchRes = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(spotifyQuery)}&type=track&limit=10`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     
@@ -553,6 +555,19 @@ exports.searchSpotify = async (event) => {
       preview_url: track.preview_url,
       image: track.album.images?.[0]?.url
     })) || [];
+
+    // Duplicate check
+    const db = await getDb();
+    const existingSongs = await db.collection('songs').find({}, { projection: { id: 1, title: 1, movie: 1, spotify_id: 1 } }).toArray();
+
+    results.forEach(res => {
+      res.isDuplicate = false;
+      const dup = existingSongs.find(s => 
+        (s.spotify_id && s.spotify_id === res.spotify_id) || 
+        (s.title.toLowerCase() === res.title.toLowerCase() && s.movie.toLowerCase() === res.movie.toLowerCase())
+      );
+      if (dup) res.isDuplicate = true;
+    });
 
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, results }) };
   } catch (error) {
@@ -1383,3 +1398,154 @@ exports.getTopRatedSongs = async (event) => {
     return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: error.message }) };
   }
 };
+
+// ── NEW: User Preferences ───────────────────────────────────────────────────
+
+exports.getUserPreferences = async (event) => {
+  try {
+    const userId = event.queryStringParameters?.userId;
+    if (!userId) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing userId' }) };
+
+    const db = await getDb();
+    const prefs = await db.collection('user_preferences').find({ userId }).toArray();
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, preferences: prefs }) };
+  } catch (err) {
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: err.message }) };
+  }
+};
+
+exports.saveUserPreferences = async (event) => {
+  try {
+    const { userId, songId, karaoke_snippet_start, karaoke_snippet_end } = JSON.parse(event.body);
+    if (!userId || !songId) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing userId or songId' }) };
+
+    // Validate max duration of 120s
+    if (karaoke_snippet_start !== undefined && karaoke_snippet_end !== undefined) {
+      if (karaoke_snippet_end - karaoke_snippet_start > 120000) {
+        return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Snippet duration cannot exceed 120 seconds (120000 ms).' }) };
+      }
+    }
+
+    const db = await getDb();
+    await db.collection('user_preferences').updateOne(
+      { userId, songId },
+      { $set: { karaoke_snippet_start, karaoke_snippet_end, updatedAt: new Date() } },
+      { upsert: true }
+    );
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true }) };
+  } catch (err) {
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: err.message }) };
+  }
+};
+
+// ── NEW: Song Suggestions ───────────────────────────────────────────────────
+
+exports.suggestSong = async (event) => {
+  try {
+    const { userId, userName, spotifyId, title, movie, year, previewUrl, albumCoverUrl } = JSON.parse(event.body);
+    if (!userId || !spotifyId) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing userId or spotifyId' }) };
+
+    const db = await getDb();
+    
+    // Check if song is already in DB
+    const existing = await db.collection('songs').findOne({ $or: [{ spotifyId }, { title }] });
+    if (existing) {
+      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Song already exists in the catalog.' }) };
+    }
+
+    // Check if suggestion already exists
+    const existingSugg = await db.collection('song_suggestions').findOne({ spotifyId, status: 'pending' });
+    if (existingSugg) {
+      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'This song has already been suggested and is pending review.' }) };
+    }
+
+    const suggestion = {
+      _id: new (require('mongodb').ObjectId)(),
+      userId,
+      userName,
+      spotifyId,
+      title,
+      movie,
+      year,
+      previewUrl,
+      albumCoverUrl,
+      status: 'pending',
+      suggestedAt: new Date()
+    };
+
+    await db.collection('song_suggestions').insertOne(suggestion);
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, suggestion }) };
+  } catch (err) {
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: err.message }) };
+  }
+};
+
+exports.getAdminSuggestions = async (event) => {
+  try {
+    const status = event.queryStringParameters?.status || 'pending';
+    const db = await getDb();
+    const suggestions = await db.collection('song_suggestions').find({ status }).sort({ suggestedAt: -1 }).toArray();
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, suggestions }) };
+  } catch (err) {
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: err.message }) };
+  }
+};
+
+exports.approveSuggestion = async (event) => {
+  try {
+    const suggestionId = event.pathParameters?.id;
+    if (!suggestionId) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing suggestionId' }) };
+
+    const db = await getDb();
+    const ObjectId = require('mongodb').ObjectId;
+    const suggestion = await db.collection('song_suggestions').findOne({ _id: new ObjectId(suggestionId) });
+    if (!suggestion) return { statusCode: 404, headers: corsHeaders, body: JSON.stringify({ error: 'Suggestion not found' }) };
+    if (suggestion.status !== 'pending') return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Suggestion already processed' }) };
+
+    // Approve logic: Update status, and we can trigger addSong logic or just set status to approved and let client call addSong
+    // To keep it simple, we just mark it approved here. The client can call addSong separately, or we can do it here.
+    // Let's do it here: call the actual addSong function logic.
+    // We can simulate an event to exports.addSong.
+    const addEvent = {
+      body: JSON.stringify({
+        title: suggestion.title,
+        movie: suggestion.movie,
+        year: suggestion.year,
+        spotify_id: suggestion.spotifyId,
+        preview_url: suggestion.previewUrl,
+        album_cover_url: suggestion.albumCoverUrl
+      }),
+      headers: event.headers,
+      requestContext: { authorizer: { principalId: 'admin' } } // fake authorizer for admin
+    };
+    const addRes = await exports.addSong(addEvent);
+    const parsedRes = JSON.parse(addRes.body);
+
+    if (parsedRes.success) {
+      await db.collection('song_suggestions').updateOne({ _id: new ObjectId(suggestionId) }, { $set: { status: 'approved', processedAt: new Date() } });
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, newSongId: parsedRes.songId }) };
+    } else {
+      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ success: false, error: parsedRes.error }) };
+    }
+  } catch (err) {
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: err.message }) };
+  }
+};
+
+exports.rejectSuggestion = async (event) => {
+  try {
+    const suggestionId = event.pathParameters?.id;
+    if (!suggestionId) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing suggestionId' }) };
+
+    const db = await getDb();
+    const ObjectId = require('mongodb').ObjectId;
+    await db.collection('song_suggestions').updateOne(
+      { _id: new ObjectId(suggestionId) },
+      { $set: { status: 'rejected', processedAt: new Date() } }
+    );
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true }) };
+  } catch (err) {
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: err.message }) };
+  }
+};
+

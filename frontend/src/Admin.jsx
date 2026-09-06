@@ -20,6 +20,9 @@ export default function Admin() {
   const [incentivesLoading, setIncentivesLoading] = useState(false);
   const [incentiveModalReq, setIncentiveModalReq] = useState(null);
 
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+
   // Karaoke Snippet Picker state
   const [showSnippetPicker, setShowSnippetPicker] = useState(false);
   const [snippetSong, setSnippetSong] = useState(null);
@@ -152,12 +155,59 @@ export default function Admin() {
     setIsPayingOut(false);
   };
 
+  const fetchSuggestions = async () => {
+    setSuggestionsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/suggestions`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSuggestions(data.suggestions || []);
+      }
+    } catch(err) {
+      console.error(err);
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  };
+
+  const approveSuggestion = async (suggestionId) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/suggestions/${suggestionId}/approve`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setSuggestions(suggestions.filter(s => s._id !== suggestionId));
+        fetchSongs();
+      } else {
+        alert("Failed to approve");
+      }
+    } catch(err) { console.error(err); }
+  };
+
+  const rejectSuggestion = async (suggestionId) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/suggestions/${suggestionId}/reject`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setSuggestions(suggestions.filter(s => s._id !== suggestionId));
+      } else {
+        alert("Failed to reject");
+      }
+    } catch(err) { console.error(err); }
+  };
+
   useEffect(() => {
     if (token) {
       fetchSongs();
       fetchSchedule();
       fetchGamification();
       fetchIncentives();
+      fetchSuggestions();
     }
   }, [token]);
 
@@ -542,6 +592,36 @@ export default function Admin() {
     song.movie?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     song.director?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+
+  const renderSuggestionsTab = () => {
+    if (suggestionsLoading) return <div className="text-white text-center py-10">Loading suggestions...</div>;
+    if (suggestions.length === 0) return <div className="text-neutral-500 text-center py-10">No pending suggestions.</div>;
+
+    return (
+      <div className="space-y-4">
+        <h2 className="text-xl font-bold text-white mb-6">Pending Song Suggestions</h2>
+        <div className="grid gap-4">
+          {suggestions.map(s => (
+            <div key={s._id} className="bg-neutral-800 p-4 rounded-xl border border-neutral-700 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <img src={s.albumCoverUrl} className="w-16 h-16 rounded bg-neutral-900" />
+                <div>
+                  <h3 className="font-bold text-white text-lg">{s.title}</h3>
+                  <p className="text-sm text-neutral-400">{s.movie} ({s.year})</p>
+                  <p className="text-xs text-neutral-500 mt-1">Suggested by: {s.userName}</p>
+                </div>
+              </div>
+              <div className="flex gap-2 flex-col md:flex-row">
+                <button onClick={() => approveSuggestion(s._id)} className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-lg font-bold text-white transition">Approve & Add</button>
+                <button onClick={() => rejectSuggestion(s._id)} className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg font-bold text-white transition">Reject</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   const renderDatabaseTab = () => {
     return (
@@ -1056,6 +1136,12 @@ export default function Admin() {
               >
                 Incentives
               </button>
+                            <button 
+                onClick={() => setActiveTab('suggestions')} 
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${activeTab === 'suggestions' ? 'bg-amber-500 text-black' : 'text-neutral-400 hover:text-white'}`}
+              >
+                Suggestions
+              </button>
               <button 
                 onClick={() => setActiveTab('gamification')}
                 className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${activeTab === 'gamification' ? 'bg-amber-500 text-black' : 'text-neutral-400 hover:text-white'}`}
@@ -1071,7 +1157,7 @@ export default function Admin() {
 
         {error && <div className="p-4 bg-red-900/50 text-red-200 rounded-lg border border-red-800">{error}</div>}
 
-        {activeTab === 'database' ? renderDatabaseTab() : activeTab === 'schedule' ? renderScheduleTab() : activeTab === 'incentives' ? renderIncentivesTab() : renderGamificationTab()}
+        {activeTab === 'database' ? renderDatabaseTab() : activeTab === 'schedule' ? renderScheduleTab() : activeTab === 'incentives' ? renderIncentivesTab() : activeTab === 'suggestions' ? renderSuggestionsTab() : renderGamificationTab()}
       </div>
 
       {/* ── EDIT SONG MODAL ──────────────────────────────── */}

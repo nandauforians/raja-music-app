@@ -279,6 +279,108 @@ Resources:
       Tags:
         Environment: !Ref Environment
 
+  UserPreferencesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AppName}-user-preferences'
+      CodeUri: backend/
+      Handler: lambda_functions.getUserPreferences
+      Events:
+        GetApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /user/preferences
+            Method: GET
+        PostApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /user/preferences
+            Method: POST
+      Tags:
+        Environment: !Ref Environment
+
+  SaveUserPreferencesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AppName}-save-user-preferences'
+      CodeUri: backend/
+      Handler: lambda_functions.saveUserPreferences
+      Events:
+        PostApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /user/preferences
+            Method: POST
+      Tags:
+        Environment: !Ref Environment
+
+  SuggestSongFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AppName}-suggest-song'
+      CodeUri: backend/
+      Handler: lambda_functions.suggestSong
+      Events:
+        PostApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /suggestions
+            Method: POST
+      Tags:
+        Environment: !Ref Environment
+
+  GetAdminSuggestionsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AppName}-get-admin-suggestions'
+      CodeUri: backend/
+      Handler: lambda_functions.getAdminSuggestions
+      Events:
+        GetApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /admin/suggestions
+            Method: GET
+      Tags:
+        Environment: !Ref Environment
+
+  ApproveSuggestionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AppName}-approve-suggestion'
+      CodeUri: backend/
+      Handler: lambda_functions.approveSuggestion
+      Events:
+        PostApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /admin/suggestions/{id}/approve
+            Method: POST
+      Tags:
+        Environment: !Ref Environment
+
+  RejectSuggestionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AppName}-reject-suggestion'
+      CodeUri: backend/
+      Handler: lambda_functions.rejectSuggestion
+      Events:
+        PostApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /admin/suggestions/{id}/reject
+            Method: POST
+      Tags:
+        Environment: !Ref Environment
+
   RemoveSongFunction:
     Type: AWS::Serverless::Function
     Properties:

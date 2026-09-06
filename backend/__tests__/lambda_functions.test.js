@@ -178,4 +178,79 @@ describe('Lambda Functions Unit Tests', () => {
       expect(body.pointsAwarded).toBe(125);
     });
   });
+
+  describe('User Preferences API', () => {
+    it('should save user preferences within max length', async () => {
+      const mockUpdateOne = vi.fn().mockResolvedValue({ acknowledged: true });
+      const { MongoClient } = await import('mongodb');
+      MongoClient.mockImplementationOnce(() => ({
+        connect: vi.fn().mockResolvedValue(),
+        db: vi.fn().mockReturnValue({
+          collection: vi.fn().mockReturnValue({ updateOne: mockUpdateOne })
+        }),
+        close: vi.fn()
+      }));
+
+      const event = {
+        body: JSON.stringify({ userId: 'u1', songId: 's1', karaoke_snippet_start: 10000, karaoke_snippet_end: 120000 })
+      };
+      const response = await lambda.saveUserPreferences(event);
+      expect(response.statusCode).toBe(200);
+    });
+
+    it('should reject user preferences exceeding 120s', async () => {
+      const event = {
+        body: JSON.stringify({ userId: 'u1', songId: 's1', karaoke_snippet_start: 0, karaoke_snippet_end: 120001 })
+      };
+      const response = await lambda.saveUserPreferences(event);
+      expect(response.statusCode).toBe(400);
+      const body = JSON.parse(response.body);
+      expect(body.error).toContain('cannot exceed 120 seconds');
+    });
+  });
+
+  describe('Song Suggestions API', () => {
+    it('should allow user to suggest a song', async () => {
+      const mockInsertOne = vi.fn().mockResolvedValue({ acknowledged: true });
+      const mockFindOne = vi.fn().mockResolvedValue(null);
+      const { MongoClient } = await import('mongodb');
+      MongoClient.mockImplementationOnce(() => ({
+        connect: vi.fn().mockResolvedValue(),
+        db: vi.fn().mockReturnValue({
+          collection: vi.fn().mockReturnValue({ insertOne: mockInsertOne, findOne: mockFindOne })
+        }),
+        close: vi.fn()
+      }));
+
+      const event = {
+        body: JSON.stringify({ userId: 'u1', spotifyId: 'sp1', title: 'Test Song' })
+      };
+      const response = await lambda.suggestSong(event);
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.success).toBe(true);
+      expect(body.suggestion.status).toBe('pending');
+    });
+
+    it('should reject suggestion if song already in catalog', async () => {
+      const mockFindOne = vi.fn().mockResolvedValue({ _id: 'existing_song' });
+      const { MongoClient } = await import('mongodb');
+      MongoClient.mockImplementationOnce(() => ({
+        connect: vi.fn().mockResolvedValue(),
+        db: vi.fn().mockReturnValue({
+          collection: vi.fn().mockReturnValue({ findOne: mockFindOne })
+        }),
+        close: vi.fn()
+      }));
+
+      const event = {
+        body: JSON.stringify({ userId: 'u1', spotifyId: 'sp1', title: 'Test Song' })
+      };
+      const response = await lambda.suggestSong(event);
+      expect(response.statusCode).toBe(400);
+      const body = JSON.parse(response.body);
+      expect(body.error).toContain('already exists in the catalog');
+    });
+  });
 });
+

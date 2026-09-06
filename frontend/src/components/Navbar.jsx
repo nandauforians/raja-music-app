@@ -7,7 +7,8 @@ export default function Navbar({
   setCurrentView, 
   user, 
   handleLogout, 
-  handleLoginSuccess 
+  handleLoginSuccess,
+  setShowSuggestModal
 }) {
   return (
     <nav className="relative z-20 w-full flex items-center justify-between px-6 lg:px-12 py-4 lg:py-6 bg-transparent border-b border-zinc-800/50">
@@ -23,11 +24,18 @@ export default function Navbar({
         </button>
         
         {user && (
-          <button 
-            onClick={() => setCurrentView('dashboard')}
-            className={`px-3 lg:px-4 py-1.5 rounded-full text-[10px] lg:text-sm font-medium transition-colors ${currentView === 'dashboard' ? 'bg-amber-500 text-black shadow-lg' : 'text-zinc-400 hover:text-white'}`}>
-            Dashboard
-          </button>
+          <>
+            <button 
+              onClick={() => setCurrentView('dashboard')}
+              className={`px-3 lg:px-4 py-1.5 rounded-full text-[10px] lg:text-sm font-medium transition-colors ${currentView === 'dashboard' ? 'bg-amber-500 text-black shadow-lg' : 'text-zinc-400 hover:text-white'}`}>
+              Dashboard
+            </button>
+            <button 
+              onClick={() => setShowSuggestModal(true)}
+              className="px-3 lg:px-4 py-1.5 rounded-full text-[10px] lg:text-sm font-medium transition-colors text-amber-500 hover:text-amber-400 hover:bg-amber-500/10 flex items-center gap-1">
+              💡 Suggest
+            </button>
+          </>
         )}
       </div>
       

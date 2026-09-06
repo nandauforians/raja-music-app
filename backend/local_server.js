@@ -182,6 +182,35 @@ app.get('/admin/youtube-search', async (req, res) => {
   sendResponse(res, result);
 });
 
+// User Preferences
+app.get('/user/preferences', async (req, res) => {
+  const result = await lambdaFunctions.getUserPreferences(createEvent(req));
+  sendResponse(res, result);
+});
+app.post('/user/preferences', async (req, res) => {
+  const result = await lambdaFunctions.saveUserPreferences(createEvent(req));
+  sendResponse(res, result);
+});
+
+// Song Suggestions
+app.post('/suggestions', async (req, res) => {
+  const result = await lambdaFunctions.suggestSong(createEvent(req));
+  sendResponse(res, result);
+});
+app.get('/admin/suggestions', async (req, res) => {
+  const result = await lambdaFunctions.getAdminSuggestions(createEvent(req));
+  sendResponse(res, result);
+});
+app.post('/admin/suggestions/:id/approve', async (req, res) => {
+  const result = await lambdaFunctions.approveSuggestion(createEvent(req));
+  sendResponse(res, result);
+});
+app.post('/admin/suggestions/:id/reject', async (req, res) => {
+  const result = await lambdaFunctions.rejectSuggestion(createEvent(req));
+  sendResponse(res, result);
+});
+
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Local Backend API running on http://localhost:${PORT}`);

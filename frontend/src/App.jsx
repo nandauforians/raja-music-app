@@ -718,11 +718,13 @@ export default function IlayarajaApp() {
   const lastTrackedTimeRef = useRef(0);
   const accumulatedSecondsRef = useRef(0);
   const sessionPlaySecondsRef = useRef(0);
+  const hasTrackedListenRef = useRef(false);
 
   // Reset max played time when song changes
   useEffect(() => {
     maxPlayedTimeRef.current = 0;
     setHasTrackedListen(false);
+    hasTrackedListenRef.current = false;
     lastTrackedTimeRef.current = 0;
     accumulatedSecondsRef.current = 0;
     sessionPlaySecondsRef.current = 0;
@@ -773,12 +775,13 @@ export default function IlayarajaApp() {
 
       const isFull = totalDurationMs > 0 && sessionPlaySecondsRef.current > (totalDurationMs / 1000) * 0.8;
 
-      if (accumulatedSecondsRef.current >= 15 || (isFull && !hasTrackedListen)) {
+      if (accumulatedSecondsRef.current >= 15 || (isFull && !hasTrackedListenRef.current)) {
         const secondsToTrack = Math.round(accumulatedSecondsRef.current);
-        const trackingFull = isFull && !hasTrackedListen;
+        const trackingFull = isFull && !hasTrackedListenRef.current;
         
         if (trackingFull) {
           setHasTrackedListen(true);
+          hasTrackedListenRef.current = true;
           trackActivity('listen_full');
         }
 

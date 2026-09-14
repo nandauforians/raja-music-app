@@ -19,40 +19,47 @@ let cachedPrivateKey = null;
 
 function getCloudFrontPrivateKey() {
   if (cachedPrivateKey) return cachedPrivateKey;
-  if (process.env.CLOUDFRONT_PRIVATE_KEY && process.env.CLOUDFRONT_PRIVATE_KEY.includes('END PUBLIC KEY')) { // Wait, it's PRIVATE key
-      // ... actually, let's just read the file to be 100% safe
+  // Prefer env var (works in Lambda). Fall back to local .pem file (for local dev).
+  if (process.env.CLOUDFRONT_PRIVATE_KEY && process.env.CLOUDFRONT_PRIVATE_KEY.includes('PRIVATE KEY')) {
+    cachedPrivateKey = process.env.CLOUDFRONT_PRIVATE_KEY.replace(/\\n/g, '\n');
+    return cachedPrivateKey;
   }
   try {
     cachedPrivateKey = fs.readFileSync(path.join(__dirname, 'private_key.pem'), 'utf8');
     return cachedPrivateKey;
   } catch (e) {
-    console.error("Failed to read private_key.pem", e);
+    console.error("Failed to read private_key.pem and CLOUDFRONT_PRIVATE_KEY env var not set.", e);
     return null;
   }
 }
 
-function signCloudFrontUrl(s3Url) {
-  if (!s3Url) return s3Url;
+const CLOUDFRONT_DOMAIN = 'ddttm9vr604n9.cloudfront.net';
+
+function signCloudFrontUrl(anyUrl) {
+  if (!anyUrl) return anyUrl;
   try {
-    const urlObj = new URL(s3Url);
-    // If it's not an S3 URL, just return it
-    if (!urlObj.hostname.includes('amazonaws.com')) return s3Url;
-    
-    const key = urlObj.pathname.replace(/^\/+/, '');
-    const privateKey = getCloudFrontPrivateKey();
-    
-    // Fallback to the known CloudFront domain if DOMAIN_NAME is misconfigured or missing
-    let domainName = process.env.DOMAIN_NAME || 'ddttm9vr604n9.cloudfront.net';
-    if (domainName === 'rajamusic.uforiansports.com') {
-        domainName = 'ddttm9vr604n9.cloudfront.net';
+    const urlObj = new URL(anyUrl);
+    let key;
+
+    if (urlObj.hostname.includes('amazonaws.com')) {
+      // Raw S3 URL: extract the path as the key
+      key = urlObj.pathname.replace(/^\/+/, '');
+    } else if (urlObj.hostname.includes('cloudfront.net')) {
+      // Already a CloudFront URL (possibly stale/expired): re-sign with a fresh expiry
+      key = urlObj.pathname.replace(/^\/+/, '');
+    } else {
+      // Unknown URL type, return as-is
+      return anyUrl;
     }
 
+    const privateKey = getCloudFrontPrivateKey();
+
     if (!privateKey || !process.env.CLOUDFRONT_KEY_PAIR_ID) {
-      console.log("Missing private key or key pair ID. Returning raw S3 URL.");
-      return s3Url;
+      console.log("Missing private key or key pair ID. Returning original URL.");
+      return anyUrl;
     }
-    
-    const cfUrl = `https://${domainName}/${key}`;
+
+    const cfUrl = `https://${CLOUDFRONT_DOMAIN}/${key}`;
     return getSignedUrl({
       url: cfUrl,
       keyPairId: process.env.CLOUDFRONT_KEY_PAIR_ID,
@@ -61,7 +68,7 @@ function signCloudFrontUrl(s3Url) {
     });
   } catch(e) {
     console.error("Failed to sign CloudFront URL:", e);
-    return s3Url;
+    return anyUrl;
   }
 }
 

@@ -320,23 +320,21 @@ def main():
             log(f"DRY RUN complete. Karaoke track at: {karaoke_path}")
             return
             
-        # If we have a local file, convert to mp3 if necessary or just upload it as original_url
-        original_url = None
-        if args.local_file:
-            import boto3
-            ext = args.local_file.split('.')[-1]
-            s3_key = f"source/{song_id}.{ext}"
-            original_url = f"https://{S3_BUCKET}.s3.{S3_REGION}.amazonaws.com/{s3_key}"
-            log(f"Uploading original file to s3://{S3_BUCKET}/{s3_key} ...")
-            s3 = boto3.client('s3', region_name=S3_REGION)
-            with open(args.local_file, 'rb') as f:
-                s3.upload_fileobj(
-                    f, S3_BUCKET, s3_key,
-                    ExtraArgs={'ContentType': f'audio/{ext}', 'CacheControl': 'max-age=86400'}
-                )
-            log(f"Uploaded Original! Public URL: {original_url}")
+        # Upload the original audio to S3 regardless of whether it's local or from youtube
+        import boto3
+        ext = audio_path.split('.')[-1]
+        s3_key = f"source/{song_id}.{ext}"
+        original_url = f"https://{S3_BUCKET}.s3.{S3_REGION}.amazonaws.com/{s3_key}"
+        log(f"Uploading original file to s3://{S3_BUCKET}/{s3_key} ...")
+        s3 = boto3.client('s3', region_name=S3_REGION)
+        with open(audio_path, 'rb') as f:
+            s3.upload_fileobj(
+                f, S3_BUCKET, s3_key,
+                ExtraArgs={'ContentType': f'audio/{ext}', 'CacheControl': 'max-age=86400'}
+            )
+        log(f"Uploaded Original! Public URL: {original_url}")
         
-        # Upload to S3
+        # Upload to S3 (karaoke)
         karaoke_url = upload_to_s3(karaoke_path, song_id)
         
         # Update MongoDB

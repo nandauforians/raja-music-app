@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { GoogleLogin, useGoogleLogin, googleLogout } from '@react-oauth/google';
 import { QRCodeSVG } from 'qrcode.react';
+import { Loader2, Star } from 'lucide-react';
+import toast from 'react-hot-toast';
+import LyricsViewer from './components/LyricsViewer';
+import { parseLrc } from './utils/lyrics';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -40,6 +44,81 @@ export default function Admin() {
   
   // Edit form state
   const [editingSong, setEditingSong] = useState(null);
+  const [contextPrompt, setContextPrompt] = useState('');
+  const [isGeneratingTrivia, setIsGeneratingTrivia] = useState(false);
+
+  useEffect(() => {
+    if (editingSong) {
+      setContextPrompt(`Write a fascinating, 2-paragraph trivia or story about the making of the song '${editingSong.title}' from the movie '${editingSong.movie}' directed by ${editingSong.director || 'Unknown'}, composed by Ilaiyaraaja. Focus on musical brilliance or interesting facts. Keep it engaging.`);
+    } else {
+      setContextPrompt('');
+    }
+  }, [editingSong?.id]);
+
+  const handleGenerateTrivia = async () => {
+    if (!contextPrompt.trim()) return;
+    setIsGeneratingTrivia(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/generate-trivia`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ prompt: contextPrompt })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to generate');
+      setEditingSong({ ...editingSong, gemini_trivia: data.trivia });
+      toast.success('Generated new description!');
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setIsGeneratingTrivia(false);
+    }
+  };
+
+  // Lyrics Preview state
+  const [previewTimeMs, setPreviewTimeMs] = useState(0);
+  const previewAudioRef = useRef(null);
+  const previewLyricsContainerRef = useRef(null);
+  const [previewLyricsLanguage, setPreviewLyricsLanguage] = useState('tanglish');
+
+  // Helper to compute active lyric index for preview
+  const getPreviewActiveLyricIndex = () => {
+    if (!editingSong) return -1;
+    let rawLrc = null;
+    if (editingSong.synced_lyrics_tamil && editingSong.synced_lyrics_tanglish) {
+      rawLrc = previewLyricsLanguage === 'tamil' ? editingSong.synced_lyrics_tamil : editingSong.synced_lyrics_tanglish;
+    } else {
+      rawLrc = editingSong.synced_lyrics_tanglish || editingSong.synced_lyrics_tamil || editingSong.synced_lyrics;
+    }
+    if (!rawLrc) return -1;
+    
+    const lyrics = parseLrc(rawLrc);
+    const customOffset = editingSong.lyrics_offset_ms ? Number(editingSong.lyrics_offset_ms) : 0;
+    const LYRIC_OFFSET_MS = 500;
+    
+    return lyrics.reduce((acc, curr, index) => {
+      return (previewTimeMs + LYRIC_OFFSET_MS - customOffset) >= curr.timeMs ? index : acc;
+    }, -1);
+  };
+  
+  const previewActiveLyricIndex = getPreviewActiveLyricIndex();
+  
+  // Auto-scroll logic for preview
+  useEffect(() => {
+    if (previewActiveLyricIndex !== -1 && previewLyricsContainerRef.current) {
+      const timer = setTimeout(() => {
+        if (previewLyricsContainerRef.current) {
+          const activeEl = previewLyricsContainerRef.current.children[previewActiveLyricIndex];
+          if (activeEl) {
+            const container = previewLyricsContainerRef.current;
+            const scrollPos = activeEl.offsetTop - (container.clientHeight / 2) + (activeEl.clientHeight / 2);
+            container.scrollTo({ top: scrollPos, behavior: 'smooth' });
+          }
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [previewActiveLyricIndex, previewLyricsLanguage]);
 
   const [spotifyQuery, setSpotifyQuery] = useState('');
   const [isSearchingSpotify, setIsSearchingSpotify] = useState(false);
@@ -47,6 +126,7 @@ export default function Admin() {
   
   const [isSearchingYoutube, setIsSearchingYoutube] = useState(false);
   const [youtubeResults, setYoutubeResults] = useState([]);
+  const [ytSearchSong, setYtSearchSong] = useState(null); // song object being searched for YouTube URL from Schedule tab
 
   const handleSpotifySearch = async (e) => {
     e?.preventDefault();
@@ -107,6 +187,30 @@ export default function Admin() {
     setYoutubeResults([]);
   };
 
+  const handleSaveYoutubeUrlForSong = async (songObj, videoUrl) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/songs/${songObj.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ ...songObj, youtube_url: videoUrl })
+      });
+      if (res.status === 401) return handleLogout();
+      const data = await res.json();
+      if (data.success) {
+        setYoutubeResults([]);
+        setYtSearchSong(null);
+        fetchSongs(); // Refresh list to update state
+      } else {
+        alert(data.error || 'Failed to save YouTube URL');
+      }
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   const [commandPopup, setCommandPopup] = useState(null);
   const [processingSongs, setProcessingSongs] = useState(new Set());
 
@@ -114,7 +218,15 @@ export default function Admin() {
     const cwd = window.location.pathname.includes('/raja-music-app') 
       ? window.location.pathname.split('/raja-music-app')[0] + '/raja-music-app'
       : '/Users/nanda/code/raja-music-app';
-    const cmd = `cd ${cwd} && python3 scripts/generate_karaoke.py --song-id ${songId}`;
+    const cmd = `cd ${cwd} && python3 scripts/daily_karaoke.py --id ${songId}`;
+    setCommandPopup(cmd);
+  };
+
+  const triggerLocalPipelineForDate = (dateStr) => {
+    const cwd = window.location.pathname.includes('/raja-music-app') 
+      ? window.location.pathname.split('/raja-music-app')[0] + '/raja-music-app'
+      : '/Users/nanda/code/raja-music-app';
+    const cmd = `cd ${cwd} && python3 scripts/daily_karaoke.py --date ${dateStr}`;
     setCommandPopup(cmd);
   };
 
@@ -503,6 +615,7 @@ export default function Admin() {
       closeSnippetPicker();
     } catch (err) {
       alert(`❌ Failed to save snippet: ${err.message}`);
+    } finally {
       setSnippetSaving(false);
     }
   };
@@ -912,6 +1025,29 @@ export default function Admin() {
                         const hasSnippet = sObj.karaoke_snippet_start != null && sObj.karaoke_snippet_end != null;
                         return (
                           <>
+                            {sObj.youtube_url ? (
+                              <button
+                                onClick={() => {
+                                  setYtSearchSong(sObj);
+                                  handleYoutubeSearch(sObj.title, sObj.movie);
+                                }}
+                                className="text-red-400 bg-red-500/10 hover:bg-red-500/20 px-2 py-0.5 rounded-full font-medium transition-colors flex items-center gap-1"
+                                title={`YouTube URL: ${sObj.youtube_url}. Click to change.`}
+                              >
+                                ▶️ YT Linked ✓
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  setYtSearchSong(sObj);
+                                  handleYoutubeSearch(sObj.title, sObj.movie);
+                                }}
+                                className="text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded-full font-medium transition-colors flex items-center gap-1 animate-pulse"
+                                title="No YouTube URL set. Click to search and link YouTube audio!"
+                              >
+                                🔍 Link YT Video
+                              </button>
+                            )}
                             {sObj.karaoke_url ? (
                               <span className="text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full font-medium">Karaoke Ready</span>
                             ) : (
@@ -928,6 +1064,13 @@ export default function Admin() {
                                 Set Snippet ✂️
                               </button>
                             )}
+                            <button
+                              onClick={() => setEditingSong(sObj)}
+                              className="text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-full font-medium hover:bg-purple-500/20 transition-colors"
+                              title="Click to edit song details (AI description, etc.)"
+                            >
+                              Edit ✏️
+                            </button>
                           </>
                         );
                       })()}
@@ -954,6 +1097,13 @@ export default function Admin() {
                         />
                         Karaoke
                       </label>
+                      <button
+                        onClick={() => triggerLocalPipelineForDate(dateStr)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-sm font-medium rounded-lg transition-colors border border-amber-500/30"
+                        title="Get the terminal command to run the pipeline for this scheduled date"
+                      >
+                        ⚡ Run Pipeline
+                      </button>
                       <button
                         onClick={() => window.open(`/?previewDate=${dateStr}`, '_blank')}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-700 hover:bg-neutral-600 text-sm font-medium rounded-lg transition-colors border border-neutral-600"
@@ -1163,7 +1313,7 @@ export default function Admin() {
       {/* ── EDIT SONG MODAL ──────────────────────────────── */}
       {editingSong && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
-          <div className="bg-neutral-900 border border-neutral-700 rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col p-6 animate-in fade-in zoom-in-95">
+          <div className="bg-neutral-900 border border-neutral-700 rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col p-6 animate-in fade-in zoom-in-95 max-h-[95vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6 border-b border-neutral-800 pb-4">
               <h2 className="text-xl font-bold text-white">Edit Song</h2>
               <button onClick={() => setEditingSong(null)} className="text-neutral-500 hover:text-white transition text-2xl leading-none">&times;</button>
@@ -1208,6 +1358,81 @@ export default function Admin() {
                   </div>
                 )}
                 <p className="text-xs text-neutral-500 mt-1">Provide a YouTube link for the automated pipeline to download the audio directly.</p>
+              </div>
+
+              <div className="md:col-span-2 mt-4 bg-purple-900/10 p-4 rounded-xl border border-purple-500/30">
+                <label className="block text-sm font-semibold text-purple-400 uppercase tracking-wider mb-2">✨ AI Description Context</label>
+                <textarea 
+                  rows="3" 
+                  value={contextPrompt} 
+                  onChange={e => setContextPrompt(e.target.value)} 
+                  className="w-full px-4 py-2 bg-neutral-900 border border-purple-500/50 rounded-lg text-white focus:border-purple-400 transition-colors text-sm"
+                  placeholder="Provide context for the AI description..."
+                ></textarea>
+                <div className="flex justify-end mt-2">
+                  <button 
+                    type="button" 
+                    onClick={handleGenerateTrivia} 
+                    disabled={isGeneratingTrivia}
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded flex items-center gap-2"
+                  >
+                    {isGeneratingTrivia ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className="w-4 h-4" />}
+                    Regenerate Description
+                  </button>
+                </div>
+                <div className="mt-4">
+                  <label className="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Generated Description (Editable)</label>
+                  <textarea 
+                    rows="6" 
+                    value={editingSong.gemini_trivia || ''} 
+                    onChange={e => setEditingSong({...editingSong, gemini_trivia: e.target.value})} 
+                    className="w-full px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white text-sm"
+                    placeholder="AI generated trivia will appear here..."
+                  ></textarea>
+                </div>
+              </div>
+
+              <div className="md:col-span-2 mt-4 bg-black/40 p-4 rounded-xl border border-neutral-700/50">
+                <label className="block text-sm font-semibold text-blue-400 uppercase tracking-wider mb-2 flex justify-between items-center">
+                  <span>⏱️ Lyrics Sync Offset (ms)</span>
+                  <span className="text-neutral-400 font-normal text-xs bg-neutral-800 px-2 py-1 rounded">Negative (-) = Earlier, Positive (+) = Later</span>
+                </label>
+                <div className="flex gap-4 items-center mb-4">
+                  <input type="number" placeholder="e.g., -500 for half a second earlier" value={editingSong.lyrics_offset_ms || ''} onChange={e => setEditingSong({...editingSong, lyrics_offset_ms: parseInt(e.target.value, 10) || 0})} className="flex-1 px-4 py-2 bg-neutral-900 border border-blue-900/50 rounded-lg text-white focus:border-blue-500 transition-colors" />
+                </div>
+                
+                {(() => {
+                  const previewAudioUrl = editingSong.original_url || editingSong.karaoke_url;
+                  const previewHasDual = !!(editingSong.synced_lyrics_tamil && editingSong.synced_lyrics_tanglish);
+                  const previewRawLrc = previewHasDual 
+                    ? (previewLyricsLanguage === 'tamil' ? editingSong.synced_lyrics_tamil : editingSong.synced_lyrics_tanglish)
+                    : (editingSong.synced_lyrics_tanglish || editingSong.synced_lyrics_tamil || editingSong.synced_lyrics || '');
+                  
+                  return previewAudioUrl && previewRawLrc ? (
+                    <div className="flex flex-col gap-4 border-t border-neutral-800 pt-4 mt-2">
+                      <p className="text-xs text-neutral-500 uppercase tracking-widest font-bold">Preview Sync</p>
+                      <audio 
+                        ref={previewAudioRef}
+                        src={previewAudioUrl} 
+                        controls 
+                        className="w-full h-10 rounded custom-audio-player" 
+                        onTimeUpdate={(e) => setPreviewTimeMs(e.target.currentTime * 1000)}
+                      />
+                      <div className="bg-black rounded-xl overflow-hidden shadow-inner border border-neutral-800">
+                        <LyricsViewer 
+                          mode="listen"
+                          lyrics={parseLrc(previewRawLrc)}
+                          plainLyrics={null}
+                          activeLyricIndex={previewActiveLyricIndex}
+                          lyricsContainerRef={previewLyricsContainerRef}
+                          hasDualLyrics={previewHasDual}
+                          lyricsLanguage={previewLyricsLanguage}
+                          setLyricsLanguage={setPreviewLyricsLanguage}
+                        />
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
               </div>
 
               <div className="md:col-span-2 flex justify-end gap-3 mt-4">
@@ -1504,6 +1729,93 @@ export default function Admin() {
                 ✅ Mark as Paid
               </button>
               <button onClick={() => setIncentiveModalReq(null)} className="text-neutral-400 hover:text-white text-sm py-2">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* YOUTUBE LINK MODAL FOR SCHEDULE TAB */}
+      {ytSearchSong && (
+        <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-neutral-900 border border-neutral-700 rounded-2xl p-6 max-w-lg w-full shadow-2xl flex flex-col max-h-[80vh]">
+            <div className="flex justify-between items-center mb-4 pb-3 border-b border-neutral-800">
+              <div>
+                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                  <span className="text-red-500">▶️</span> Link YouTube Video
+                </h3>
+                <p className="text-xs text-neutral-400 mt-1">
+                  {ytSearchSong.title} — {ytSearchSong.movie}
+                </p>
+              </div>
+              <button 
+                onClick={() => { setYtSearchSong(null); setYoutubeResults([]); }} 
+                className="text-neutral-500 hover:text-white text-2xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => handleYoutubeSearch(ytSearchSong.title, ytSearchSong.movie)}
+                disabled={isSearchingYoutube}
+                className="w-full py-2.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm shadow-lg shadow-red-600/30"
+              >
+                {isSearchingYoutube ? '🔍 Searching YouTube...' : '🔍 Re-Search YouTube'}
+              </button>
+            </div>
+
+            {ytSearchSong.youtube_url && (
+              <div className="mb-4 p-3 bg-neutral-800/80 border border-neutral-700 rounded-xl flex items-center justify-between text-xs">
+                <span className="text-neutral-400">Current URL:</span>
+                <a href={ytSearchSong.youtube_url} target="_blank" rel="noreferrer" className="text-red-400 hover:underline truncate max-w-[240px] font-mono">
+                  {ytSearchSong.youtube_url}
+                </a>
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto pr-1 space-y-2">
+              {isSearchingYoutube ? (
+                <div className="text-center py-10 text-neutral-400 animate-pulse">Searching YouTube for best matching audio...</div>
+              ) : youtubeResults.length === 0 ? (
+                <div className="text-center py-10 text-neutral-500 text-sm">
+                  Click 'Re-Search YouTube' or paste a URL below to select a video.
+                </div>
+              ) : (
+                youtubeResults.map(v => (
+                  <div
+                    key={v.videoId}
+                    onClick={() => handleSaveYoutubeUrlForSong(ytSearchSong, v.url)}
+                    className="flex gap-3 p-3 hover:bg-neutral-800 border border-transparent hover:border-red-900/50 rounded-xl cursor-pointer transition-all group"
+                  >
+                    <img src={v.thumbnail} alt={v.title} className="w-24 h-16 object-cover rounded-lg bg-neutral-950 flex-shrink-0" />
+                    <div className="flex-1 min-w-0 flex flex-col justify-center">
+                      <h4 className="text-sm font-bold text-white group-hover:text-red-400 transition-colors line-clamp-2 leading-tight">{v.title}</h4>
+                      <p className="text-xs text-neutral-400 mt-1">{v.channelTitle}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-neutral-800 flex flex-col gap-2">
+              <label className="text-xs text-neutral-400 font-medium">Or paste YouTube URL manually:</label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  id="manualYtUrl"
+                  className="flex-1 bg-black border border-neutral-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-red-500"
+                />
+                <button
+                  onClick={() => {
+                    const val = document.getElementById('manualYtUrl').value.trim();
+                    if (val) handleSaveYoutubeUrlForSong(ytSearchSong, val);
+                  }}
+                  className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs rounded-xl transition-colors"
+                >
+                  Save URL
+                </button>
+              </div>
             </div>
           </div>
         </div>

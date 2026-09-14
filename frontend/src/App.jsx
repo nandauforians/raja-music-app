@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
-import { Music, Calendar, Share2, Heart, MessageCircle, Mic, Headphones, User, LogOut, Award, Play, Star, ChevronRight, Info, Disc, Search, Trophy, Pause, FastForward } from 'lucide-react';
+import { Music, Calendar, Share2, Heart, MessageCircle, Mic, Headphones, User, Users, LogOut, Award, Play, Star, ChevronRight, Info, Disc, Search, Trophy, Pause, FastForward, Loader2 } from 'lucide-react';
 import { GoogleLogin, googleLogout } from '@react-oauth/google';
 import { jwtDecode } from 'jwt-decode';
 import Admin from './Admin';
@@ -9,7 +9,8 @@ import ResultModal from './components/ResultModal';
 import Navbar from './components/Navbar';
 import LyricsViewer from './components/LyricsViewer';
 import SnippetEditorModal from './components/SnippetEditorModal';
-
+import { parseLrc } from './utils/lyrics';
+import { YIN } from 'pitchfinder';
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const SPOTIFY_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || '70a1295210854963b95b8b687eb68883';
 
@@ -19,6 +20,7 @@ const SPOTIFY_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || '70a12952108
 
 export default function IlayarajaApp() {
   const [song, setSong] = useState(null);
+  const [todaySong, setTodaySong] = useState(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isFavorited, setIsFavorited] = useState(false);
   const [error, setError] = useState(null);
@@ -26,13 +28,14 @@ export default function IlayarajaApp() {
   // Lyrics State
   const [lyrics, setLyrics] = useState([]);
   const [plainLyrics, setPlainLyrics] = useState(null);
+  const [lyricsLanguage, setLyricsLanguage] = useState('tanglish'); // 'tanglish' | 'tamil'
   const [currentTimeMs, setCurrentTimeMs] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const lyricsContainerRef = useRef(null);
   const isCancelledRef = useRef(false);
 
   // Karaoke mode state
-  const [mode, setMode] = useState('listen'); // 'listen' | 'karaoke'
+  const [mode, setMode] = useState('original'); // 'original' | 'karaoke'
   const [karaokeLoading, setKaraokeLoading] = useState(false);
   const [karaokeError, setKaraokeError] = useState(null);
   const audioRef = useRef(null);
@@ -46,6 +49,7 @@ export default function IlayarajaApp() {
   const audioContextRef = useRef(null);
   const audioSourceNodeRef = useRef(null);
   const destNodeRef = useRef(null);
+  const hostAudioRef = useRef(null); // reserved for future host audio element
 
   // Spotify Add-to-Playlist state
   const [spotifyToken, setSpotifyToken] = useState(() => localStorage.getItem('spotify_access_token'));
@@ -59,6 +63,92 @@ export default function IlayarajaApp() {
   const [archiveSongs, setArchiveSongs] = useState([]);
   const [archiveSearch, setArchiveSearch] = useState('');
   const [archiveLoading, setArchiveLoading] = useState(false);
+
+  // Play-D-List State
+  const [isPlayDListActive, setIsPlayDListActive] = useState(false);
+
+  const sortedArchiveSongs = useMemo(() => {
+    return [...archiveSongs].sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date));
+  }, [archiveSongs]);
+
+  const startPlayDList = async () => {
+    setIsPlayDListActive(true);
+    setCurrentView('today');
+    setMode('original');
+    
+    let songsToUse = sortedArchiveSongs;
+    
+    if (songsToUse.length === 0) {
+      setArchiveLoading(true);
+      try {
+        const res = await fetch(`${API_BASE_URL}/song/archive`);
+        const data = await res.json();
+        if (data.success) {
+          setArchiveSongs(data.archive);
+          songsToUse = [...data.archive].sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date));
+        }
+      } catch (err) {
+        console.error("Error fetching archive for Play-D-List:", err);
+      } finally {
+        setArchiveLoading(false);
+      }
+    }
+    
+    if (songsToUse.length > 0) {
+      setSong(songsToUse[0]);
+    }
+  };
+
+  const playDListNext = () => {
+    if (!song || !sortedArchiveSongs.length) return;
+    const currentIndex = sortedArchiveSongs.findIndex(s => s.id === song.id);
+    if (currentIndex !== -1 && currentIndex < sortedArchiveSongs.length - 1) {
+      setSong(sortedArchiveSongs[currentIndex + 1]);
+    } else {
+      setIsPlayDListActive(false);
+    }
+  };
+
+  const playDListPrev = () => {
+    if (!song || !sortedArchiveSongs.length) return;
+    const currentIndex = sortedArchiveSongs.findIndex(s => s.id === song.id);
+    if (currentIndex > 0) {
+      setSong(sortedArchiveSongs[currentIndex - 1]);
+    }
+  };
+
+  const handleSongEnded = () => {
+    if (isPlayDListActive) {
+      playDListNext();
+    }
+  };
+
+  const restoreTodaySong = () => {
+    setIsPlayDListActive(false);
+    setVoiceAutoPlay(false);
+    if (todaySong) {
+      setSong(todaySong);
+    }
+    setCurrentView('today');
+  };
+
+  const [voiceAutoPlay, setVoiceAutoPlay] = useState(false);
+
+  // Handle voice assistant song selection — fetches full song data by ID and plays it
+  const handleVoicePlaySong = useCallback(async (voiceSong) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/song/today?songId=${voiceSong.id}`);
+      const data = await res.json();
+      if (data.success && data.song) {
+        setIsPlayDListActive(false);
+        setVoiceAutoPlay(true);
+        setSong(data.song);
+        setCurrentView('today');
+      }
+    } catch (e) {
+      console.error('Voice play song failed:', e);
+    }
+  }, []);
 
   // Authentication & Gamification
   const [user, setUser] = useState(null);
@@ -153,24 +243,51 @@ export default function IlayarajaApp() {
   }
 
   const handleShare = async () => {
-    const shareData = {
-      title: 'Uforian Music',
-      text: `Discover today's masterpiece by Ilaiyaraaja! Click to listen and find out the song of the day 🎵`,
-      url: window.location.href
-    };
+    let customMsg = song?.whatsapp_share_text;
+    if (!customMsg) {
+      const singersStr = Array.isArray(song?.singers) ? song.singers.join(' & ') : '';
+      customMsg = `🎶 Today's Maestro Teaser: A magical ${song?.movie || 'Ilaiyaraaja'} classic${singersStr ? ` sung by ${singersStr}` : ''}! Can you guess today's song? 🎧`;
+    }
+    // IMPORTANT: Combine text + url into a single 'text' field.
+    // WhatsApp (and many mobile apps) ignores navigator.share()'s `url` field
+    // and only uses `text`, so splitting them results in only the URL being shared.
+    const fullShareText = `${customMsg}\n\n👉 Play now: ${window.location.href}`;
     try {
       if (navigator.share) {
-        await navigator.share(shareData);
+        await navigator.share({ title: 'Uforian Music', text: fullShareText });
       } else {
-        await navigator.clipboard.writeText(`${shareData.text} - ${shareData.url}`);
-        toast.success('Link copied to clipboard!');
+        await navigator.clipboard.writeText(fullShareText);
+        toast.success('Teaser copied to clipboard!');
       }
     } catch (err) { console.log('Error sharing:', err); }
   };
 
-  const handleWhatsAppShare = () => {
-    const text = `Discover today's masterpiece by Ilaiyaraaja! Click to listen and find out the song of the day 🎵 - ${window.location.href}`;
-    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+  const handleWhatsAppShare = async () => {
+    let customMsg = song?.whatsapp_share_text;
+    if (!customMsg) {
+      const singersStr = Array.isArray(song?.singers) ? song.singers.join(' & ') : '';
+      customMsg = `🎶 Today's Maestro Teaser: A magical ${song?.movie || 'Ilaiyaraaja'} classic${singersStr ? ` sung by ${singersStr}` : ''}! Can you guess today's song? 🎧`;
+    }
+    const fullText = `${customMsg}\n\n👉 Play now: ${window.location.href}`;
+
+    // Primary: navigator.share() passes text DIRECTLY to WhatsApp with no
+    // intermediary redirect — this is what makes the generic Share button work.
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Uforian Music', text: fullText });
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') return; // user cancelled
+      }
+    }
+
+    // Fallback: open wa.me link (works well on mobile)
+    const encoded = encodeURIComponent(fullText);
+    const opened = window.open(`https://wa.me/?text=${encoded}`, '_blank');
+    if (!opened || opened.closed || typeof opened.closed === 'undefined') {
+      await navigator.clipboard.writeText(fullText).catch(() => {});
+      toast.success('Teaser copied to clipboard! Paste it into WhatsApp.');
+    }
   };
 
   // --- Spotify OAuth — PKCE Authorization Code Flow ---
@@ -382,6 +499,7 @@ export default function IlayarajaApp() {
         const data = await response.json();
         if (data.success && data.song) {
           setSong(data.song);
+          setTodaySong(data.song);
           if (cachedAuth && JSON.parse(cachedAuth).user?.sub) {
             try {
               const prefRes = await fetch(`${API_BASE_URL}/user/preferences?userId=${JSON.parse(cachedAuth).user.sub}`);
@@ -520,43 +638,37 @@ export default function IlayarajaApp() {
   };
 
   // --- LRC Parser ---
-  const parseLrc = (lrcString) => {
-    const lines = lrcString.split('\n');
-    const parsed = [];
-    const regex = /\[(\d{2}):(\d{2}\.\d{2,3})\](.*)/;
-    for (const line of lines) {
-      const match = line.match(regex);
-      if (match) {
-        const m = parseInt(match[1]);
-        const s = parseFloat(match[2]);
-        let text = match[3].trim();
-        let gender = null;
-        
-        if (text.startsWith('M:') || text.startsWith('M :')) {
-          gender = 'M';
-          text = text.replace(/^M\s*:\s*/i, '').trim();
-        } else if (text.startsWith('F:') || text.startsWith('F :')) {
-          gender = 'F';
-          text = text.replace(/^F\s*:\s*/i, '').trim();
-        }
-
-        if (text) {
-          parsed.push({ timeMs: (m * 60 + s) * 1000, text, gender });
-        }
-      }
-    }
-    return parsed;
-  };
 
   // --- Fetch Lyrics (cascading search) ---
   useEffect(() => {
     if (!song) return;
     const fetchLyrics = async () => {
       try {
-        if (song.synced_lyrics) {
+        let rawLrc = null;
+        if (song.synced_lyrics_tamil && song.synced_lyrics_tanglish) {
+          rawLrc = lyricsLanguage === 'tamil' ? song.synced_lyrics_tamil : song.synced_lyrics_tanglish;
+        } else if (song.synced_lyrics_tanglish) {
+          rawLrc = song.synced_lyrics_tanglish;
+        } else if (song.synced_lyrics_tamil) {
+          rawLrc = song.synced_lyrics_tamil;
+        } else if (song.synced_lyrics) {
+          rawLrc = song.synced_lyrics;
+        }
+
+        if (rawLrc) {
           console.log("Using AI-generated synced lyrics from database!");
-          setLyrics(parseLrc(song.synced_lyrics));
+          setLyrics(parseLrc(rawLrc));
           return;
+        }
+
+        // Also check if we have plain text lyrics stored in DB from the backfill
+        let dbPlainLyrics = null;
+        if (song.lyrics_tamil && song.lyrics) {
+            dbPlainLyrics = lyricsLanguage === 'tamil' ? song.lyrics_tamil : song.lyrics;
+        } else if (song.lyrics) {
+            dbPlainLyrics = song.lyrics;
+        } else if (song.lyrics_tamil) {
+            dbPlainLyrics = song.lyrics_tamil;
         }
 
         const queries = [
@@ -590,13 +702,16 @@ export default function IlayarajaApp() {
             console.log("Only plain lyrics found");
             setPlainLyrics(track.plainLyrics);
           }
+        } else if (dbPlainLyrics) {
+          console.log("Using DB fallback plain lyrics");
+          setPlainLyrics(dbPlainLyrics);
         }
       } catch (err) {
         console.error("Lyrics fetch error:", err);
       }
     };
     fetchLyrics();
-  }, [song]);
+  }, [song, lyricsLanguage]);
 
   // --- Karaoke mode: HTML5 audio time tracking ---
   const maxPlayedTimeRef = useRef(0);
@@ -627,6 +742,10 @@ export default function IlayarajaApp() {
       maxPlayedTimeRef.current = Math.max(maxPlayedTimeRef.current, seekTime);
       audioRef.current.currentTime = seekTime;
       audioRef.current.play().catch(e => console.error("Playback error:", e));
+            if (hostAudioRef.current && hostAudioRef.current.src) {
+              hostAudioRef.current.currentTime = startTime;
+              hostAudioRef.current.play().catch(e => console.error("Host playback error:", e));
+            }
     }
   };
 
@@ -690,6 +809,10 @@ export default function IlayarajaApp() {
           // Auto stop challenge or preview
           if (challengeStatus === 'recording' && mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
             mediaRecorderRef.current.stop();
+            if (hostAudioRef.current) {
+              hostAudioRef.current.pause();
+              hostAudioRef.current.currentTime = 0;
+            }
           }
           if (challengeStatus === 'previewing') {
             setChallengeStatus('idle');
@@ -795,22 +918,38 @@ export default function IlayarajaApp() {
           }
           const audioSource = audioSourceNodeRef.current;
           
-          // Create Destination (for recording)
+          // Create Mixed Destination (mic + karaoke, for the shareable recording)
           const dest = audioCtx.createMediaStreamDestination();
           destNodeRef.current = dest;
-          
-          // Route Microphone -> Destination
           micSource.connect(dest);
-          
-          // Route Audio Player -> Destination AND Speakers
           if (audioSource) {
             audioSource.connect(dest);
             audioSource.connect(audioCtx.destination);
           }
 
+          // Create Mic-Only Destination (pure mic, for pitch detection)
+          const micOnlyDest = audioCtx.createMediaStreamDestination();
+          micSource.connect(micOnlyDest);
+
           const mediaRecorder = new MediaRecorder(dest.stream, { mimeType: 'audio/webm' });
           mediaRecorderRef.current = mediaRecorder;
           audioChunksRef.current = [];
+
+          // Mic-only recorder for pitch extraction
+          const micOnlyRecorder = new MediaRecorder(micOnlyDest.stream, { mimeType: 'audio/webm' });
+          const micOnlyChunks = [];
+          micOnlyRecorder.ondataavailable = (e) => { if (e.data.size > 0) micOnlyChunks.push(e.data); };
+
+          // Calculate startTime/endTime to align pitch with the segment
+          let startTime = 0;
+          let endTime = null;
+          if (singMode === 'custom' && customSnippet) {
+            startTime = customSnippet.karaoke_snippet_start / 1000;
+            endTime = customSnippet.karaoke_snippet_end / 1000;
+          } else if (singMode === 'default' && song.karaoke_snippet_start != null) {
+            startTime = song.karaoke_snippet_start / 1000;
+            endTime = song.karaoke_snippet_end / 1000;
+          }
 
           mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0) {
@@ -819,7 +958,10 @@ export default function IlayarajaApp() {
           };
 
           mediaRecorder.onstop = async () => {
+            // Stop mic-only recorder too
+            if (micOnlyRecorder.state !== 'inactive') micOnlyRecorder.stop();
             const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            const micOnlyBlob = new Blob(micOnlyChunks, { type: 'audio/webm' });
             // Stop all tracks to release mic
             stream.getTracks().forEach(track => track.stop());
             
@@ -832,28 +974,129 @@ export default function IlayarajaApp() {
               setChallengeStatus('idle');
               return;
             }
+            
+            setChallengeStatus('result'); // show loading state if pitch takes time
+            
+            // Yield to browser to render the "Processing" state before blocking thread
+            await new Promise(r => setTimeout(r, 100));
+
+            // 1. Extract User Pitch from MIC-ONLY audio (not the mixed recording)
+            let userPitchData = [];
+            try {
+              // Wait for mic-only recorder to flush its last chunk
+              await new Promise(resolve => {
+                if (micOnlyRecorder.state === 'inactive') {
+                  resolve();
+                } else {
+                  micOnlyRecorder.addEventListener('stop', resolve, { once: true });
+                }
+              });
+              const micOnlyFinalBlob = new Blob(micOnlyChunks, { type: 'audio/webm' });
+              const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
+              const arrayBuffer = await micOnlyFinalBlob.arrayBuffer();
+              const audioBuffer = await decodeCtx.decodeAudioData(arrayBuffer);
+              
+              // Use a proper 8192-sample window with 50% hop for accurate YIN pitch detection
+              const WINDOW_SIZE = 8192;
+              const HOP_SIZE = 4096; // 50% overlap
+              const detectPitch = YIN({ sampleRate: audioBuffer.sampleRate, threshold: 0.1 });
+              const channelData = audioBuffer.getChannelData(0);
+              
+              for (let i = 0; i + WINDOW_SIZE <= channelData.length; i += HOP_SIZE) {
+                const chunk = channelData.slice(i, i + WINDOW_SIZE);
+                const pitch = detectPitch(chunk);
+                if (pitch && pitch > 80 && pitch < 1200) { // human voice range
+                  const tSec = Number((i / audioBuffer.sampleRate).toFixed(2));
+                  userPitchData.push({ t: tSec, f: Number(pitch.toFixed(2)) });
+                }
+              }
+              decodeCtx.close();
+              console.log(`[Pitch] Extracted ${userPitchData.length} user pitch points from mic-only audio`);
+            } catch(e) {
+              console.error("Pitch extraction failed:", e);
+            }
+
+            // 2. Fetch Reference Pitch via backend proxy (avoids CloudFront CORS)
+            let referencePitchData = [];
+            if (song && song.pitch_data_url) {
+              try {
+                const resp = await fetch(`${API_BASE_URL}/song/pitch-proxy?songId=${song.id}`);
+                if (resp.ok) referencePitchData = await resp.json();
+              } catch(e) { console.error('Failed to fetch ref pitch:', e); }
+            }
+
+            // 3. Extract reference pitch for the segment window, normalized to 0-based time.
+            // The pitch JSON has timestamps from 0 (start of vocals.mp3 = start of original song).
+            // The karaoke segment starts at startTime seconds into the song.
+            // We filter to [startTime, endTime] and subtract startTime so both user and
+            // reference share the same 0-based time axis.
+            const segmentDuration = (endTime || 9999) - startTime;
+            const segmentRefPitch = referencePitchData
+              .filter(rp => rp.t >= startTime && (endTime == null || rp.t <= endTime))
+              .map(rp => ({ t: Number((rp.t - startTime).toFixed(2)), f: rp.f }));
+
+            // 4. Calculate Accuracy (both arrays now share 0-based time)
+            let pitchAccuracy = 0;
+            if (userPitchData.length > 0 && segmentRefPitch.length > 0) {
+              let totalDeviation = 0;
+              let count = 0;
+              userPitchData.forEach(up => {
+                 // find nearest ref pitch within 0.25s (generous window for mic latency)
+                 const ref = segmentRefPitch.reduce((best, rp) => {
+                   const d = Math.abs(rp.t - up.t);
+                   return (!best || d < Math.abs(best.t - up.t)) ? rp : best;
+                 }, null);
+                 if (ref && Math.abs(ref.t - up.t) <= 0.25) {
+                     const refMidi = 69 + 12 * Math.log2(ref.f / 440);
+                     const userMidi = 69 + 12 * Math.log2(up.f / 440);
+                     let centsDiff = Math.abs(refMidi - userMidi) * 100;
+                     // allow octave errors (e.g. female singing male song)
+                     centsDiff = centsDiff % 1200; 
+                     if (centsDiff > 600) centsDiff = 1200 - centsDiff; 
+                     
+                     totalDeviation += centsDiff;
+                     count++;
+                 }
+              });
+              
+              if (count > 0) {
+                  const avgCents = totalDeviation / count;
+                  // Musical scoring curve:
+                  // 0 cents deviation   → 100%  (perfect)
+                  // 50 cents deviation  → ~80%  (very good)
+                  // 100 cents (1 note)  → ~61%  (decent)
+                  // 200 cents (2 notes) → ~37%  (off-key)
+                  // 300+ cents          → ~10%  (poor)
+                  // Uses exponential decay so partial credit is always given
+                  pitchAccuracy = Math.round(100 * Math.exp(-avgCents / 200));
+                  pitchAccuracy = Math.max(1, Math.min(100, pitchAccuracy));
+              }
+              console.log(`[Pitch] Matched ${count}/${userPitchData.length} user points. Avg deviation: ${count > 0 ? Math.round(totalDeviation/count) : 0} cents. Accuracy: ${pitchAccuracy}%`);
+            }
+
             // Don't auto-score. Just store the base64 and show the result screen.
             const reader = new FileReader();
             reader.readAsDataURL(audioBlob);
             reader.onloadend = async () => {
               const base64data = reader.result.split(',')[1];
               const audioUrl = URL.createObjectURL(audioBlob);
-              setChallengeScore({ audioBase64: base64data, audioUrl: audioUrl });
-              setChallengeStatus('result');
+              console.log(`[Pitch] Segment ref: ${segmentRefPitch.length} points. User: ${userPitchData.length} points. Accuracy: ${pitchAccuracy}%`);
+              setChallengeScore({ 
+                audioBase64: base64data, 
+                audioUrl, 
+                userPitchData, 
+                referencePitchData: segmentRefPitch, 
+                pitchAccuracy 
+              });
             };
           };
 
           mediaRecorder.start();
+          micOnlyRecorder.start(); // capture mic-only stream for pitch analysis
           setChallengeStatus('recording');
           
           // Seek and Play audio (if src hasn't changed, do it immediately)
           if (audioRef.current) {
-            let startTime = 0;
-            if (singMode === 'custom' && customSnippet) {
-              startTime = customSnippet.karaoke_snippet_start / 1000;
-            } else if (singMode === 'default' && song.karaoke_snippet_start != null) {
-              startTime = song.karaoke_snippet_start / 1000;
-            }
             maxPlayedTimeRef.current = Math.max(maxPlayedTimeRef.current, startTime);
             audioRef.current.currentTime = startTime;
             audioRef.current.play().catch(e => console.error("Playback error:", e));
@@ -882,6 +1125,10 @@ export default function IlayarajaApp() {
     isCancelledRef.current = true;
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
+            if (hostAudioRef.current) {
+              hostAudioRef.current.pause();
+              hostAudioRef.current.currentTime = 0;
+            }
     }
     setChallengeStatus('idle');
     if (audioRef.current) {
@@ -915,23 +1162,51 @@ export default function IlayarajaApp() {
       startTime = song.karaoke_snippet_start / 1000;
     }
     setChallengeStatus('previewing');
-    setPendingSeekTime(startTime); // The src change will trigger onLoadedMetadata
+    
+    // Check if the source is going to change from karaoke_url to original_url
+    // previewing ALWAYS uses original_url
+    const targetSrc = song.original_url;
+    const currentSrc = audioRef.current ? audioRef.current.src : '';
+    const isSrcChanging = !currentSrc.includes(targetSrc);
+
+    if (!isSrcChanging && audioRef.current && audioRef.current.readyState >= 1) {
+      // Audio is already loaded and src isn't changing, seek and play immediately
+      maxPlayedTimeRef.current = Math.max(maxPlayedTimeRef.current, startTime);
+      audioRef.current.currentTime = startTime;
+      audioRef.current.play().catch(e => console.error("Playback error:", e));
+      if (hostAudioRef.current && hostAudioRef.current.src) {
+        hostAudioRef.current.currentTime = startTime;
+        hostAudioRef.current.play().catch(e => console.error("Host playback error:", e));
+      }
+    } else {
+      // Wait for metadata to load on the new source
+      setPendingSeekTime(startTime);
+    }
   };
 
   // --- Auto-Scrolling Logic ---
   const LYRIC_OFFSET_MS = 500; // highlight lyrics half a second early for better readability
   const activeLyricIndex = lyrics.reduce((acc, curr, index) => {
-    return (currentTimeMs + LYRIC_OFFSET_MS) >= curr.timeMs ? index : acc;
+    const customOffset = song?.lyrics_offset_ms ? Number(song.lyrics_offset_ms) : 0;
+    return (currentTimeMs + LYRIC_OFFSET_MS - customOffset) >= curr.timeMs ? index : acc;
   }, -1);
 
   useEffect(() => {
     if (activeLyricIndex !== -1 && lyricsContainerRef.current) {
-      const activeEl = lyricsContainerRef.current.children[activeLyricIndex];
-      if (activeEl) {
-        activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
+      // Small timeout allows DOM layout to recalculate if lyrics wrap differently
+      const timer = setTimeout(() => {
+        if (lyricsContainerRef.current) {
+          const activeEl = lyricsContainerRef.current.children[activeLyricIndex];
+          if (activeEl) {
+            const container = lyricsContainerRef.current;
+            const scrollPos = activeEl.offsetTop - (container.clientHeight / 2) + (activeEl.clientHeight / 2);
+            container.scrollTo({ top: scrollPos, behavior: 'smooth' });
+          }
+        }
+      }, 50);
+      return () => clearTimeout(timer);
     }
-  }, [activeLyricIndex]);
+  }, [activeLyricIndex, lyricsLanguage]);
 
   if (error) {
     return (
@@ -986,6 +1261,10 @@ export default function IlayarajaApp() {
         handleLogout={handleLogout}
         handleLoginSuccess={handleLoginSuccess}
         setShowSuggestModal={setShowSuggestModal}
+        startPlayDList={startPlayDList}
+        isPlayDListActive={isPlayDListActive}
+        restoreTodaySong={restoreTodaySong}
+        onVoicePlaySong={handleVoicePlaySong}
       /> 
 
       {/* --- MAIN CONTENT --- */}
@@ -1015,7 +1294,9 @@ export default function IlayarajaApp() {
               </div>
               <div>
                 <p className="text-[10px] lg:text-xs uppercase tracking-wider font-semibold text-zinc-500">Film</p>
-                <p className="text-sm lg:text-lg font-medium text-zinc-200">{song.movie}</p>
+                <p className="text-sm lg:text-lg font-medium text-zinc-200">
+                  {song.movie} {song.raga && song.raga !== 'Unknown' && song.raga !== 'Western/Folk' ? `| Raga: ${song.raga}` : ''}
+                </p>
               </div>
             </div>
             <div className="w-px h-10 lg:h-12 bg-zinc-800" />
@@ -1024,8 +1305,8 @@ export default function IlayarajaApp() {
                 <Music className="w-4 h-4 lg:w-5 lg:h-5 text-amber-500" />
               </div>
               <div>
-                <p className="text-[10px] lg:text-xs uppercase tracking-wider font-semibold text-zinc-500">Composer</p>
-                <p className="text-sm lg:text-lg font-medium text-zinc-200">{song.director || 'Ilaiyaraaja'}</p>
+                <p className="text-[10px] lg:text-xs uppercase tracking-wider font-semibold text-zinc-500">Director</p>
+                <p className="text-sm lg:text-lg font-medium text-zinc-200">{song.director || 'Unknown'}</p>
               </div>
             </div>
             <div className="w-px h-10 lg:h-12 bg-zinc-800" />
@@ -1195,11 +1476,51 @@ export default function IlayarajaApp() {
                     </div>
                   </div>
                   
+                  {isPlayDListActive && (
+                    <div className="mb-4 bg-gradient-to-r from-green-900/40 to-emerald-900/40 border border-emerald-500/30 rounded-xl p-3 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-[0_0_20px_rgba(16,185,129,0.15)]">
+                      <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                        </span>
+                        Play-D-List Active
+                        <span className="text-emerald-400/60 font-normal ml-1">
+                          ({sortedArchiveSongs.findIndex(s => s.id === song.id) + 1} of {sortedArchiveSongs.length})
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={playDListPrev}
+                          disabled={sortedArchiveSongs.findIndex(s => s.id === song.id) === 0}
+                          className="px-3 py-1.5 rounded-lg bg-black/40 hover:bg-black/60 text-emerald-100 text-xs font-medium transition-colors disabled:opacity-50 flex items-center gap-1"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg> Prev Day
+                        </button>
+                        <button 
+                          onClick={playDListNext}
+                          disabled={sortedArchiveSongs.findIndex(s => s.id === song.id) === sortedArchiveSongs.length - 1}
+                          className="px-3 py-1.5 rounded-lg bg-black/40 hover:bg-black/60 text-emerald-100 text-xs font-medium transition-colors disabled:opacity-50 flex items-center gap-1"
+                        >
+                          Next Day <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                        </button>
+                        <button 
+                          onClick={restoreTodaySong}
+                          className="ml-2 w-8 h-8 flex items-center justify-center rounded-full bg-red-500/20 text-red-400 hover:bg-red-500/40 hover:text-white transition-colors"
+                          title="Stop Play-D-List"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <audio
                     ref={audioRef}
                     crossOrigin="anonymous"
                     src={(mode === 'karaoke' && challengeStatus !== 'previewing') ? song.karaoke_url : song.original_url}
                     controls
+                    autoPlay={mode === 'original'}
+                    onEnded={handleSongEnded}
                     onTimeUpdate={handleAudioTimeUpdate}
                     onSeeking={handleSeeking}
                     onLoadedMetadata={handleLoadedMetadata}
@@ -1264,6 +1585,13 @@ export default function IlayarajaApp() {
                           </div>
                         </div>
                       )}
+                      {challengeStatus === 'result' && !challengeScore && (
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="flex items-center gap-2 text-blue-400 font-bold animate-pulse">
+                            <Loader2 className="w-5 h-5 animate-spin" /> Processing your vocals...
+                          </div>
+                        </div>
+                      )}
                       {challengeStatus === 'scoring' && (
                         <div className="flex items-center gap-2 text-purple-400 font-medium animate-pulse">
                           <Star className="w-4 h-4" /> AI Judge is analyzing your performance...
@@ -1282,11 +1610,14 @@ export default function IlayarajaApp() {
 
           {/* LYRICS CONTAINER */}
           <LyricsViewer 
-            mode={mode}
-            lyrics={lyrics}
+            mode={mode} 
+            lyrics={lyrics} 
             plainLyrics={plainLyrics}
             activeLyricIndex={activeLyricIndex}
             lyricsContainerRef={lyricsContainerRef}
+            hasDualLyrics={!!(song?.synced_lyrics_tamil && song?.synced_lyrics_tanglish)}
+            lyricsLanguage={lyricsLanguage}
+            setLyricsLanguage={setLyricsLanguage}
           />
         </div>
         </main>
@@ -1294,7 +1625,7 @@ export default function IlayarajaApp() {
         <main className="relative z-10 w-full min-h-[calc(100vh-88px)] px-6 lg:px-24 py-8 overflow-y-auto custom-scrollbar">
           <UserDashboard user={user} stats={userStats} />
         </main>
-      ) : (
+      ) : currentView === 'archive' ? (
         <main className="relative z-10 w-full min-h-[calc(100vh-88px)] px-6 lg:px-24 py-8 overflow-y-auto custom-scrollbar">
           <h2 className="text-3xl font-bold text-white mb-8 border-b border-zinc-800 pb-4 flex items-center gap-3">
             <Calendar className="w-8 h-8 text-amber-500" /> Archive
@@ -1323,7 +1654,7 @@ export default function IlayarajaApp() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredArchiveSongs.map((archivedSong, idx) => (
-                  <div key={idx} onClick={() => { setSong(archivedSong); setCurrentView('today'); setMode('original'); }} className="group bg-zinc-900/60 border border-zinc-800 rounded-xl overflow-hidden cursor-pointer hover:bg-zinc-800/80 hover:border-zinc-600 transition-all shadow-xl">
+                  <div key={idx} onClick={() => { setVoiceAutoPlay(false); setSong(archivedSong); setCurrentView('today'); setMode('original'); }} className="group bg-zinc-900/60 border border-zinc-800 rounded-xl overflow-hidden cursor-pointer hover:bg-zinc-800/80 hover:border-zinc-600 transition-all shadow-xl">
                     <div className="p-5 flex flex-col gap-3">
                       <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-widest text-zinc-500">
                         <span>{new Date(archivedSong.scheduled_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
@@ -1334,11 +1665,9 @@ export default function IlayarajaApp() {
                       <h3 className="text-xl font-bold text-zinc-100 group-hover:text-amber-400 transition-colors leading-tight line-clamp-2">
                         {archivedSong.title}
                       </h3>
-                      <div className="flex items-center gap-2 mt-2">
-                        <span className="text-xs text-zinc-400 truncate">{archivedSong.movie}</span>
-                        <span className="text-xs text-zinc-600">•</span>
-                        <span className="text-xs text-zinc-400">{archivedSong.year}</span>
-                      </div>
+                      <p className="text-sm text-zinc-400 group-hover:text-zinc-300 transition-colors">
+                        {archivedSong.movie} ({archivedSong.year}) {archivedSong.raga && archivedSong.raga !== 'Unknown' && archivedSong.raga !== 'Western/Folk' ? `| Raga: ${archivedSong.raga}` : ''}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -1346,9 +1675,7 @@ export default function IlayarajaApp() {
             )}
           </div>
         </main>
-      )}
-
-      {/* RESULT MODAL */}
+      ) : null}      {/* RESULT MODAL */}
       {challengeStatus === 'result' && (
         <ResultModal 
           challengeScore={challengeScore}
@@ -1423,7 +1750,9 @@ export default function IlayarajaApp() {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-white leading-tight">Save to Spotify</h2>
-                  <p className="text-xs text-zinc-500 truncate max-w-[240px]">{song?.title} — {song?.movie}</p>
+                  <p className="text-xs text-zinc-500 truncate max-w-[240px]">
+                    {song?.title} — {song?.movie} {song?.raga ? `(Raga: ${song.raga})` : ''}
+                  </p>
                 </div>
               </div>
               <button onClick={() => setShowPlaylistModal(false)} className="text-zinc-500 hover:text-white text-2xl leading-none transition-colors">&times;</button>

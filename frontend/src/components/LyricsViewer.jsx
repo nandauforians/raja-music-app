@@ -1,7 +1,29 @@
 import React from 'react';
 
-export default function LyricsViewer({ mode, lyrics, plainLyrics, activeLyricIndex, lyricsContainerRef }) {
+export default function LyricsViewer({ 
+  mode, 
+  lyrics, 
+  plainLyrics, 
+  activeLyricIndex, 
+  lyricsContainerRef,
+  hasDualLyrics,
+  lyricsLanguage,
+  setLyricsLanguage 
+}) {
   if (lyrics.length === 0 && !plainLyrics) return null;
+
+  const getLineColor = (line, isActive) => {
+    if (isActive) {
+      if (line.gender === 'M') return 'text-blue-400 scale-105 drop-shadow-[0_0_8px_rgba(96,165,250,0.6)]';
+      if (line.gender === 'F') return 'text-pink-400 scale-105 drop-shadow-[0_0_8px_rgba(244,114,182,0.6)]';
+      if (mode === 'karaoke') return 'text-purple-300 scale-105 drop-shadow-[0_0_10px_rgba(168,85,247,0.6)]';
+      return 'text-amber-400 scale-105 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]';
+    } else {
+      if (line.gender === 'M') return 'text-blue-600/70';
+      if (line.gender === 'F') return 'text-pink-600/70';
+      return 'text-zinc-600';
+    }
+  };
 
   return (
     <div className={`p-5 lg:p-6 rounded-3xl border backdrop-blur-xl h-64 overflow-hidden relative flex flex-col transition-all duration-500 ${
@@ -16,11 +38,38 @@ export default function LyricsViewer({ mode, lyrics, plainLyrics, activeLyricInd
         mode === 'karaoke' ? 'from-purple-950/80' : 'from-zinc-900/80'
       } to-transparent`} />
 
-      <h3 className={`text-[10px] lg:text-xs font-bold uppercase tracking-widest mb-4 z-20 text-center ${
-        mode === 'karaoke' ? 'text-purple-400' : 'text-zinc-500'
-      }`}>
-        {mode === 'karaoke' ? '🎤 Sing Along' : 'Lyrics'}
-      </h3>
+      <div className="flex justify-between items-center mb-4 z-20 px-2">
+        <h3 className={`text-[10px] lg:text-xs font-bold uppercase tracking-widest ${
+          mode === 'karaoke' ? 'text-purple-400' : 'text-zinc-500'
+        }`}>
+          {mode === 'karaoke' ? '🎤 Sing Along' : 'Lyrics'}
+        </h3>
+        
+        {hasDualLyrics && (
+          <div className="flex items-center gap-2 bg-black/40 rounded-full p-1 border border-white/5">
+            <button 
+              onClick={() => setLyricsLanguage('tanglish')}
+              className={`text-[10px] px-3 py-1 rounded-full font-medium transition-all ${
+                lyricsLanguage === 'tanglish' 
+                  ? 'bg-white/10 text-white' 
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              A
+            </button>
+            <button 
+              onClick={() => setLyricsLanguage('tamil')}
+              className={`text-[10px] px-3 py-1 rounded-full font-medium transition-all ${
+                lyricsLanguage === 'tamil' 
+                  ? 'bg-white/10 text-white' 
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              அ
+            </button>
+          </div>
+        )}
+      </div>
 
       {lyrics.length > 0 ? (
         <div
@@ -31,16 +80,7 @@ export default function LyricsViewer({ mode, lyrics, plainLyrics, activeLyricInd
           {lyrics.map((line, i) => (
             <div
               key={i}
-              className={`text-lg lg:text-xl font-medium transition-all duration-500 ease-out ${
-                i === activeLyricIndex
-                  ? line.gender === 'M' ? 'text-blue-400 scale-105 filter drop-shadow-[0_0_8px_rgba(96,165,250,0.6)]'
-                    : line.gender === 'F' ? 'text-pink-400 scale-105 filter drop-shadow-[0_0_8px_rgba(244,114,182,0.6)]'
-                    : mode === 'karaoke' ? 'text-purple-300 scale-105 filter drop-shadow-[0_0_10px_rgba(168,85,247,0.6)]'
-                    : 'text-amber-400 scale-105 filter drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]'
-                  : line.gender === 'M' ? 'text-blue-600/70'
-                    : line.gender === 'F' ? 'text-pink-600/70'
-                    : 'text-zinc-600'
-              }`}
+              className={`text-lg lg:text-xl font-medium transition-all duration-500 ease-out filter ${getLineColor(line, i === activeLyricIndex)}`}
             >
               {line.text}
             </div>

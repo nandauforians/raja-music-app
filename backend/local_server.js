@@ -44,6 +44,11 @@ app.post('/admin/songs', async (req, res) => {
   res.status(result.statusCode).set(result.headers).send(result.body);
 });
 
+app.post('/admin/generate-trivia', async (req, res) => {
+  const result = await lambdaFunctions.generateAdminTrivia(createEvent(req));
+  sendResponse(res, result);
+});
+
 app.patch('/admin/songs/:id', async (req, res) => {
   const result = await lambdaFunctions.updateSong(createEvent(req));
   res.status(result.statusCode).set(result.headers).send(result.body);
@@ -88,6 +93,17 @@ app.post('/admin/schedule/reset', async (req, res) => {
 
 app.post('/song/score', async (req, res) => {
   const result = await lambdaFunctions.scoreVocal(createEvent(req));
+  sendResponse(res, result);
+});
+
+app.post('/song/convert-to-mp3', async (req, res) => {
+  const result = await lambdaFunctions.convertToMp3(createEvent(req));
+  sendResponse(res, result);
+});
+
+// Pitch proxy: fetches pitch JSON directly from S3 to avoid CloudFront CORS/routing issues
+app.get('/song/pitch-proxy', async (req, res) => {
+  const result = await lambdaFunctions.pitchProxy(createEvent(req));
   sendResponse(res, result);
 });
 
@@ -176,6 +192,12 @@ app.get('/health', async (req, res) => {
   const result = await lambdaFunctions.health(createEvent(req));
   sendResponse(res, result);
 });
+
+app.post('/voice-command', async (req, res) => {
+  const result = await lambdaFunctions.voiceCommand(createEvent(req));
+  sendResponse(res, result);
+});
+
 
 app.get('/admin/youtube-search', async (req, res) => {
   const result = await lambdaFunctions.searchYouTube(createEvent(req));

@@ -44,6 +44,11 @@ app.post('/admin/songs', async (req, res) => {
   res.status(result.statusCode).set(result.headers).send(result.body);
 });
 
+app.post('/admin/generate-trivia', async (req, res) => {
+  const result = await lambdaFunctions.generateAdminTrivia(createEvent(req));
+  sendResponse(res, result);
+});
+
 app.patch('/admin/songs/:id', async (req, res) => {
   const result = await lambdaFunctions.updateSong(createEvent(req));
   res.status(result.statusCode).set(result.headers).send(result.body);
@@ -88,6 +93,17 @@ app.post('/admin/schedule/reset', async (req, res) => {
 
 app.post('/song/score', async (req, res) => {
   const result = await lambdaFunctions.scoreVocal(createEvent(req));
+  sendResponse(res, result);
+});
+
+app.post('/song/convert-to-mp3', async (req, res) => {
+  const result = await lambdaFunctions.convertToMp3(createEvent(req));
+  sendResponse(res, result);
+});
+
+// Pitch proxy: fetches pitch JSON directly from S3 to avoid CloudFront CORS/routing issues
+app.get('/song/pitch-proxy', async (req, res) => {
+  const result = await lambdaFunctions.pitchProxy(createEvent(req));
   sendResponse(res, result);
 });
 
@@ -177,10 +193,45 @@ app.get('/health', async (req, res) => {
   sendResponse(res, result);
 });
 
+app.post('/voice-command', async (req, res) => {
+  const result = await lambdaFunctions.voiceCommand(createEvent(req));
+  sendResponse(res, result);
+});
+
+
 app.get('/admin/youtube-search', async (req, res) => {
   const result = await lambdaFunctions.searchYouTube(createEvent(req));
   sendResponse(res, result);
 });
+
+// User Preferences
+app.get('/user/preferences', async (req, res) => {
+  const result = await lambdaFunctions.getUserPreferences(createEvent(req));
+  sendResponse(res, result);
+});
+app.post('/user/preferences', async (req, res) => {
+  const result = await lambdaFunctions.saveUserPreferences(createEvent(req));
+  sendResponse(res, result);
+});
+
+// Song Suggestions
+app.post('/suggestions', async (req, res) => {
+  const result = await lambdaFunctions.suggestSong(createEvent(req));
+  sendResponse(res, result);
+});
+app.get('/admin/suggestions', async (req, res) => {
+  const result = await lambdaFunctions.getAdminSuggestions(createEvent(req));
+  sendResponse(res, result);
+});
+app.post('/admin/suggestions/:id/approve', async (req, res) => {
+  const result = await lambdaFunctions.approveSuggestion(createEvent(req));
+  sendResponse(res, result);
+});
+app.post('/admin/suggestions/:id/reject', async (req, res) => {
+  const result = await lambdaFunctions.rejectSuggestion(createEvent(req));
+  sendResponse(res, result);
+});
+
 
 const PORT = 3000;
 app.listen(PORT, () => {

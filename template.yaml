@@ -58,6 +58,30 @@ Parameters:
     Default: ""
     Description: Private key for signing CloudFront URLs
   
+  TwitterConsumerKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Twitter Consumer Key for posting
+    
+  TwitterSecretKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Twitter Secret Key for posting
+    
+  TwitterAccessToken:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Twitter Access Token for posting
+    
+  TwitterAccessTokenSecret:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Twitter Access Token Secret for posting
+
   Environment:
     Type: String
     Default: production
@@ -79,6 +103,10 @@ Globals:
         GEMINI_API_KEY: !Ref GeminiApiKey
         CLOUDFRONT_KEY_PAIR_ID: !Ref AudioCloudFrontPublicKey
         CLOUDFRONT_PRIVATE_KEY: !Ref CloudFrontPrivateKey
+        TWITTER_CONSUMER_KEY: !Ref TwitterConsumerKey
+        TWITTER_SECRET_KEY: !Ref TwitterSecretKey
+        TWITTER_ACCESS_TOKEN: !Ref TwitterAccessToken
+        TWITTER_ACCESS_TOKEN_SECRET: !Ref TwitterAccessTokenSecret
 
 
 Resources:
@@ -228,6 +256,13 @@ Resources:
       FunctionName: !Sub '${AppName}-reset-schedule'
       CodeUri: backend/
       Handler: lambda_functions.resetSchedule
+      Events:
+        ResetScheduleApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /admin/schedule/reset
+            Method: POST
       Tags:
         Environment: !Ref Environment
 
@@ -292,12 +327,6 @@ Resources:
             RestApiId: !Ref ApiGateway
             Path: /user/preferences
             Method: GET
-        PostApi:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ApiGateway
-            Path: /user/preferences
-            Method: POST
       Tags:
         Environment: !Ref Environment
 
@@ -717,6 +746,90 @@ Resources:
             RestApiId: !Ref ApiGateway
             Path: /admin/incentives/reject
             Method: POST
+      Tags:
+        Environment: !Ref Environment
+
+  VoiceCommandFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AppName}-voice-command'
+      CodeUri: backend/
+      Handler: lambda_functions.voiceCommand
+      Events:
+        VoiceCommandApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /voice-command
+            Method: POST
+      Tags:
+        Environment: !Ref Environment
+
+  GenerateAdminTriviaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AppName}-generate-admin-trivia'
+      CodeUri: backend/
+      Handler: lambda_functions.generateAdminTrivia
+      Events:
+        GenerateAdminTriviaApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /admin/generate-trivia
+            Method: POST
+      Tags:
+        Environment: !Ref Environment
+
+  ConvertToMp3Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AppName}-convert-to-mp3'
+      CodeUri: backend/
+      Handler: lambda_functions.convertToMp3
+      Events:
+        ConvertToMp3Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /song/convert-to-mp3
+            Method: POST
+      Tags:
+        Environment: !Ref Environment
+
+  PitchProxyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AppName}-pitch-proxy'
+      CodeUri: backend/
+      Handler: lambda_functions.pitchProxy
+      Events:
+        PitchProxyApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /song/pitch-proxy
+            Method: GET
+      Policies:
+        - S3ReadPolicy:
+            BucketName: 'uforian-karaoke-tracks'
+      Tags:
+        Environment: !Ref Environment
+
+  DailySocialPosterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AppName}-daily-social-poster'
+      CodeUri: backend/
+      Handler: lambda_functions.postDailySocials
+      Events:
+        DailySchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(30 3 * * ? *)
+            Name: DailySocialPosterSchedule
+            Description: "Triggers daily at 9:00 AM IST to post to socials"
+            Enabled: true
       Tags:
         Environment: !Ref Environment
 

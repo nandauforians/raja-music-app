@@ -42,6 +42,26 @@ Parameters:
     NoEcho: true
     Default: ''
     Description: Private key for signing CloudFront URLs
+  TwitterConsumerKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Twitter Consumer Key for posting
+  TwitterSecretKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Twitter Secret Key for posting
+  TwitterAccessToken:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Twitter Access Token for posting
+  TwitterAccessTokenSecret:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Twitter Access Token Secret for posting
   Environment:
     Type: String
     Default: production
@@ -73,6 +93,14 @@ Globals:
           Ref: AudioCloudFrontPublicKey
         CLOUDFRONT_PRIVATE_KEY:
           Ref: CloudFrontPrivateKey
+        TWITTER_CONSUMER_KEY:
+          Ref: TwitterConsumerKey
+        TWITTER_SECRET_KEY:
+          Ref: TwitterSecretKey
+        TWITTER_ACCESS_TOKEN:
+          Ref: TwitterAccessToken
+        TWITTER_ACCESS_TOKEN_SECRET:
+          Ref: TwitterAccessTokenSecret
 Resources:
   ApiGateway:
     Type: AWS::Serverless::Api
@@ -245,6 +273,14 @@ Resources:
         Fn::Sub: ${AppName}-reset-schedule
       CodeUri: ResetScheduleFunction
       Handler: lambda_functions.resetSchedule
+      Events:
+        ResetScheduleApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/schedule/reset
+            Method: POST
       Tags:
         Environment:
           Ref: Environment
@@ -310,6 +346,126 @@ Resources:
           Ref: Environment
     Metadata:
       SamResourceId: SearchYouTubeFunction
+  UserPreferencesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-user-preferences
+      CodeUri: UserPreferencesFunction
+      Handler: lambda_functions.getUserPreferences
+      Events:
+        GetApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /user/preferences
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: UserPreferencesFunction
+  SaveUserPreferencesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-save-user-preferences
+      CodeUri: SaveUserPreferencesFunction
+      Handler: lambda_functions.saveUserPreferences
+      Events:
+        PostApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /user/preferences
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: SaveUserPreferencesFunction
+  SuggestSongFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-suggest-song
+      CodeUri: SuggestSongFunction
+      Handler: lambda_functions.suggestSong
+      Events:
+        PostApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /suggestions
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: SuggestSongFunction
+  GetAdminSuggestionsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-get-admin-suggestions
+      CodeUri: GetAdminSuggestionsFunction
+      Handler: lambda_functions.getAdminSuggestions
+      Events:
+        GetApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/suggestions
+            Method: GET
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetAdminSuggestionsFunction
+  ApproveSuggestionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-approve-suggestion
+      CodeUri: ApproveSuggestionFunction
+      Handler: lambda_functions.approveSuggestion
+      Events:
+        PostApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/suggestions/{id}/approve
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: ApproveSuggestionFunction
+  RejectSuggestionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-reject-suggestion
+      CodeUri: RejectSuggestionFunction
+      Handler: lambda_functions.rejectSuggestion
+      Events:
+        PostApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/suggestions/{id}/reject
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: RejectSuggestionFunction
   RemoveSongFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -736,6 +892,109 @@ Resources:
           Ref: Environment
     Metadata:
       SamResourceId: RejectIncentiveFunction
+  VoiceCommandFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-voice-command
+      CodeUri: VoiceCommandFunction
+      Handler: lambda_functions.voiceCommand
+      Events:
+        VoiceCommandApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /voice-command
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: VoiceCommandFunction
+  GenerateAdminTriviaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-generate-admin-trivia
+      CodeUri: GenerateAdminTriviaFunction
+      Handler: lambda_functions.generateAdminTrivia
+      Events:
+        GenerateAdminTriviaApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /admin/generate-trivia
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GenerateAdminTriviaFunction
+  ConvertToMp3Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-convert-to-mp3
+      CodeUri: ConvertToMp3Function
+      Handler: lambda_functions.convertToMp3
+      Events:
+        ConvertToMp3Api:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /song/convert-to-mp3
+            Method: POST
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: ConvertToMp3Function
+  PitchProxyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-pitch-proxy
+      CodeUri: PitchProxyFunction
+      Handler: lambda_functions.pitchProxy
+      Events:
+        PitchProxyApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ApiGateway
+            Path: /song/pitch-proxy
+            Method: GET
+      Policies:
+      - S3ReadPolicy:
+          BucketName: uforian-karaoke-tracks
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: PitchProxyFunction
+  DailySocialPosterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AppName}-daily-social-poster
+      CodeUri: DailySocialPosterFunction
+      Handler: lambda_functions.postDailySocials
+      Events:
+        DailySchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(30 3 * * ? *)
+            Name: DailySocialPosterSchedule
+            Description: Triggers daily at 9:00 AM IST to post to socials
+            Enabled: true
+      Tags:
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: DailySocialPosterFunction
   UserRecordingsBucket:
     Type: AWS::S3::Bucket
     Properties:

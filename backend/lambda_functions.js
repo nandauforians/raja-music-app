@@ -5,6 +5,9 @@
 const { MongoClient } = require('mongodb');
 const { OAuth2Client } = require('google-auth-library');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegStatic = require('ffmpeg-static');
+ffmpeg.setFfmpegPath(ffmpegStatic);
 const { getSignedUrl } = require('@aws-sdk/cloudfront-signer');
 const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
 
@@ -125,7 +128,7 @@ exports.getSongOfDay = async (event) => {
     let source;
 
     if (event.queryStringParameters && event.queryStringParameters.songId) {
-      selectedSong = await songsCol.findOne({ id: event.queryStringParameters.songId });
+      selectedSong = await songsCol.findOne({ id: String(event.queryStringParameters.songId) });
       source = 'direct';
     }
 
@@ -154,25 +157,63 @@ exports.getSongOfDay = async (event) => {
     } // End if (!selectedSong)
 
     let geminiTrivia = selectedSong.gemini_trivia;
+    let whatsappShareText = selectedSong.whatsapp_share_text;
     
-    if (!geminiTrivia && process.env.GEMINI_API_KEY) {
+    if ((!geminiTrivia || !whatsappShareText) && process.env.GEMINI_API_KEY) {
       try {
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        const composer = selectedSong.director || 'Ilaiyaraaja';
-        const prompt = `Write a fascinating, 2-paragraph trivia or story about the making of the song '${selectedSong.title}' from the movie '${selectedSong.movie}' composed by ${composer}. Focus on musical brilliance or interesting facts. Keep it engaging.`;
-        
-        const result = await model.generateContent(prompt);
-        geminiTrivia = result.response.text();
+        const composer = 'Ilaiyaraaja';
+        const directorStr = selectedSong.director ? `directed by ${selectedSong.director}` : '';
+        const singersStr = Array.isArray(selectedSong.singers) ? selectedSong.singers.join(', ') : (selectedSong.singers || 'legendary singers');
 
-        await songsCol.updateOne(
-          { id: selectedSong.id },
-          { $set: { gemini_trivia: geminiTrivia } }
-        );
+        const updatesToSave = {};
+
+        if (!geminiTrivia) {
+          const triviaPrompt = `Write a fascinating, 2-paragraph trivia or story about the making of the song '${selectedSong.title}' from the movie '${selectedSong.movie}' ${directorStr}, composed by ${composer}. Focus on musical brilliance or interesting facts. Keep it engaging.`;
+          const triviaResult = await model.generateContent(triviaPrompt);
+          geminiTrivia = triviaResult.response.text();
+          updatesToSave.gemini_trivia = geminiTrivia;
+        }
+
+        if (!whatsappShareText) {
+          const sharePrompt = `Create a short, catchy, intriguing WhatsApp share message for an Ilaiyaraaja daily song guessing puzzle.
+Song Details:
+- Movie: ${selectedSong.movie} (${selectedSong.year || 'Classic'})
+- Singers: ${singersStr}
+- Composer: ${composer}
+
+CRITICAL RULES:
+1. Do NOT mention the song title anywhere in the message.
+2. Give a teaser hint incorporating the Movie ('${selectedSong.movie}'), Singers ('${singersStr}'), and an intriguing musical vibe or clue about the song.
+3. Keep it under 280 characters, fun, engaging with appropriate emojis.
+4. End with a call to action like "Can you guess today's Maestro classic?" without adding any link (the link will be appended separately).
+5. Output ONLY the plain text of the WhatsApp message, no extra markdown or quotes.`;
+
+          const shareResult = await model.generateContent(sharePrompt);
+          whatsappShareText = shareResult.response.text().trim().replace(/^["']|["']$/g, '');
+          updatesToSave.whatsapp_share_text = whatsappShareText;
+        }
+
+        if (Object.keys(updatesToSave).length > 0) {
+          await songsCol.updateOne(
+            { id: selectedSong.id },
+            { $set: updatesToSave }
+          );
+        }
       } catch (geminiError) {
         console.error("Gemini Generation Error:", geminiError);
-        geminiTrivia = selectedSong.description || `A legendary composition by ${composer}.`;
+        if (!geminiTrivia) geminiTrivia = selectedSong.description || `A legendary composition by ${selectedSong.director || 'Ilaiyaraaja'}.`;
+        if (!whatsappShareText) {
+          const singersStr = Array.isArray(selectedSong.singers) ? selectedSong.singers.join(' & ') : '';
+          whatsappShareText = `🎶 Today's Maestro Teaser: A magical ${selectedSong.movie} track${singersStr ? ` sung by ${singersStr}` : ''}! Can you guess today's classic? 🎧`;
+        }
       }
+    }
+
+    if (!whatsappShareText) {
+      const singersStr = Array.isArray(selectedSong.singers) ? selectedSong.singers.join(' & ') : '';
+      whatsappShareText = `🎶 Today's Maestro Teaser: A magical ${selectedSong.movie} track${singersStr ? ` sung by ${singersStr}` : ''}! Can you guess today's classic? 🎧`;
     }
 
     // Clean up _id for serialization
@@ -190,13 +231,14 @@ exports.getSongOfDay = async (event) => {
 
     if (selectedSong.original_url) selectedSong.original_url = signCloudFrontUrl(selectedSong.original_url);
     if (selectedSong.karaoke_url) selectedSong.karaoke_url = signCloudFrontUrl(selectedSong.karaoke_url);
+    if (selectedSong.pitch_data_url) selectedSong.pitch_data_url = signCloudFrontUrl(selectedSong.pitch_data_url);
 
     return {
       statusCode: 200,
       headers: corsHeaders,
       body: JSON.stringify({
         success: true,
-        song: { ...selectedSong, gemini_trivia: geminiTrivia },
+        song: { ...selectedSong, gemini_trivia: geminiTrivia, whatsapp_share_text: whatsappShareText },
         userRating,
         source,
       }),
@@ -248,6 +290,7 @@ exports.getArchive = async (event) => {
       
       if (song.original_url) song.original_url = signCloudFrontUrl(song.original_url);
       if (song.karaoke_url) song.karaoke_url = signCloudFrontUrl(song.karaoke_url);
+      if (song.pitch_data_url) song.pitch_data_url = signCloudFrontUrl(song.pitch_data_url);
       
       results.push(song);
     }
@@ -360,6 +403,7 @@ exports.getSongList = async (event) => {
     songs.forEach(song => {
       if (song.original_url) song.original_url = signCloudFrontUrl(song.original_url);
       if (song.karaoke_url) song.karaoke_url = signCloudFrontUrl(song.karaoke_url);
+      if (song.pitch_data_url) song.pitch_data_url = signCloudFrontUrl(song.pitch_data_url);
     });
       
     const total = await db.collection("songs").countDocuments();
@@ -392,9 +436,71 @@ exports.resetSchedule = async (event) => {
 };
 
 // ============================================================================
+// ADMIN: GENERATE TRIVIA
+// ============================================================================
+
+exports.generateAdminTrivia = async (event) => {
+  try {
+    await verifyAdminToken(event);
+
+    const body = JSON.parse(event.body);
+    const prompt = body.prompt;
+
+    if (!prompt) {
+      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'Prompt is required' }) };
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'Gemini API key missing' }) };
+    }
+
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const result = await model.generateContent(prompt);
+    const trivia = result.response.text();
+
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: true, trivia })
+    };
+  } catch (error) {
+    return { statusCode: error.message.startsWith('Unauthorized') ? 401 : 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: error.message }) };
+  }
+};
+
+// ============================================================================
 // 8: ADD SONG
 // ============================================================================
 
+/**
+ * Enriches a song object with actors and searchable_text via Gemini.
+ * Called automatically when a new song is added, and by the backfill script.
+ */
+async function enrichSongMetadata(song) {
+  if (!process.env.GEMINI_API_KEY) return song;
+  try {
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const prompt = `You are a Tamil cinema expert. For the Tamil/Telugu film "${song.movie}" (${song.year || 'unknown year'}), return ONLY a raw JSON object (no markdown):
+{"actors":["Lead Actor 1","Lead Actor 2"],"director":"Director Name"}
+Rules: actors = 2-3 lead cast members (not musicians). director = film director (not Ilayaraja). Use common English transliterations. If unsure, return empty values.`;
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().replace(/```json/g,'').replace(/```/g,'').trim();
+    const data = JSON.parse(text);
+    const actors = Array.isArray(data.actors) ? data.actors : [];
+    const director = data.director || song.director || '';
+    const parts = [song.title, song.movie, song.year ? String(song.year) : '', song.decade || '', director, (song.singers || []).join(' '), actors.join(' ')];
+    const searchable_text = parts.filter(Boolean).join(' ').toLowerCase();
+    return { ...song, actors, director: director || song.director, searchable_text };
+  } catch (e) {
+    console.error('enrichSongMetadata failed:', e.message);
+    // Fallback: build searchable_text from what we have
+    const parts = [song.title, song.movie, song.year ? String(song.year) : '', song.decade || '', song.director || '', (song.singers || []).join(' ')];
+    return { ...song, searchable_text: parts.filter(Boolean).join(' ').toLowerCase() };
+  }
+}
 
 exports.addSong = async (event) => {
   try {
@@ -463,9 +569,11 @@ exports.addSong = async (event) => {
     }
     delete body.force; // Don't save the force flag to the DB
 
-    await db.collection("songs").insertOne(body);
+    // Auto-enrich with actors + searchable_text via Gemini (async, best-effort)
+    const enrichedBody = await enrichSongMetadata(body);
+    await db.collection("songs").insertOne(enrichedBody);
 
-    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, message: 'Song added', id: body.id }) };
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, message: 'Song added', id: enrichedBody.id }) };
   } catch (error) {
     return { statusCode: error.message.startsWith('Unauthorized') ? 401 : 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: error.message }) };
   }
@@ -660,7 +768,7 @@ exports.updateKaraokeUrl = async (event) => {
 exports.scoreVocal = async (event) => {
   try {
     const body = JSON.parse(event.body || '{}');
-    const { audioBase64, mimeType, songId, userId, userName, userPicture } = body;
+    const { audioBase64, mimeType, songId, userId, userName, userPicture, pitchAccuracy } = body;
 
     if (!audioBase64 || !songId) {
       throw new Error('Missing audio or songId');
@@ -674,16 +782,21 @@ exports.scoreVocal = async (event) => {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-    const prompt = `You are an expert singing judge, like Simon Cowell but slightly more encouraging.
-I am providing you with an audio recording of a user singing karaoke to the song "${song.title}" from the movie ${song.movie}.
+    const prompt = `You are a trained classical playback singer and a strict but constructive talent show judge (like K. S. Chithra or Mano).
+I am providing you with an audio recording of a user singing karaoke to the Ilayaraja song "${song.title}" from the movie ${song.movie}.
 Here are the lyrics they are singing:
 ---
 ${song.lyrics || "No lyrics provided, please judge based on pitch and melody."}
 ---
-Please analyze their vocal performance in this audio recording. Pay close attention to pitch accuracy, rhythm matching, and overall emotion/energy.
-Return your judgment strictly as a JSON object with two fields:
+The user's mathematical pitch accuracy score compared to the original singer is ${pitchAccuracy || 'unknown'}%.
+
+Please analyze their vocal performance technically and objectively. 
+Do not be overly dramatic or enthusiastic. Provide grounded, technical feedback on their pitch, rhythm, breath control, and expression. Use the provided pitch accuracy score to inform your judgment.
+Return your judgment strictly as a JSON object with three fields:
 1. "score": an integer from 0 to 100.
-2. "feedback": a short, fun, 1-2 sentence feedback explaining what they did well and what could be improved.
+2. "brief_summary": a short, technical, 1-2 sentence feedback (e.g. "Good pitch control, but watch your breath support on the higher notes.").
+3. "detailed_summary": A comprehensive Markdown breakdown covering Pitch Accuracy, Timing & Rhythm, Breath & Dynamics, and Technical Suggestions for Improvement.
+
 Do NOT return markdown formatting like \`\`\`json, just the raw JSON text.`;
 
     const result = await model.generateContent([
@@ -700,9 +813,17 @@ Do NOT return markdown formatting like \`\`\`json, just the raw JSON text.`;
     let scoreData;
     try {
       scoreData = JSON.parse(text);
+      // Map 'feedback' back to 'brief_summary' in case the AI uses the old key
+      if (scoreData.feedback && !scoreData.brief_summary) {
+          scoreData.brief_summary = scoreData.feedback;
+      }
     } catch (e) {
       console.error("Failed to parse Gemini response:", text);
-      scoreData = { score: 75, feedback: "Great effort, but the AI couldn't quite score it. Keep practicing!" };
+      scoreData = { 
+          score: 75, 
+          brief_summary: "Great effort, but the AI couldn't quite score it. Keep practicing!",
+          detailed_summary: "### AI Processing Error\nWe couldn't generate a detailed report for this performance. Please try again!"
+      };
     }
 
     if (userId) {
@@ -724,11 +845,110 @@ Do NOT return markdown formatting like \`\`\`json, just the raw JSON text.`;
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify({ success: true, score: scoreData.score, feedback: scoreData.feedback })
+      body: JSON.stringify({ 
+        success: true, 
+        score: scoreData.score, 
+        feedback: scoreData.brief_summary, 
+        detailed_summary: scoreData.detailed_summary 
+      })
     };
   } catch (error) {
     console.error("Scoring error:", error);
     return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: error.message }) };
+  }
+};
+
+// Convert WebM recording to MP3
+exports.convertToMp3 = async (event) => {
+  try {
+    const body = JSON.parse(event.body || '{}');
+    const { audioBase64 } = body;
+
+    if (!audioBase64) {
+      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'No audio provided' }) };
+    }
+
+    const os = require('os');
+    const crypto = require('crypto');
+    const tempId = crypto.randomBytes(16).toString('hex');
+    const inputPath = path.join(os.tmpdir(), `${tempId}.webm`);
+    const outputPath = path.join(os.tmpdir(), `${tempId}.mp3`);
+
+    // Write input base64 to temp file
+    const buffer = Buffer.from(audioBase64.split(',')[1] || audioBase64, 'base64');
+    fs.writeFileSync(inputPath, buffer);
+
+    await new Promise((resolve, reject) => {
+      ffmpeg(inputPath)
+        .toFormat('mp3')
+        .on('error', (err) => {
+          console.error('An error occurred during mp3 conversion: ' + err.message);
+          reject(err);
+        })
+        .on('end', () => {
+          resolve();
+        })
+        .save(outputPath);
+    });
+
+    // Read back MP3 and convert to base64
+    const mp3Buffer = fs.readFileSync(outputPath);
+    const mp3Base64 = `data:audio/mp3;base64,${mp3Buffer.toString('base64')}`;
+
+    // Clean up temp files
+    try {
+      fs.unlinkSync(inputPath);
+      fs.unlinkSync(outputPath);
+    } catch (e) {
+      console.error('Failed to cleanup temp files', e);
+    }
+
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: true, audioBase64: mp3Base64 })
+    };
+  } catch (error) {
+    console.error("Conversion error:", error);
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: error.message }) };
+  }
+};
+
+// ============================================================================
+// PITCH PROXY - Fetches pitch JSON from S3 to avoid browser CORS/CloudFront issues
+// ============================================================================
+exports.pitchProxy = async (event) => {
+  try {
+    const songId = event.queryStringParameters?.songId;
+    if (!songId) {
+      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'songId required' }) };
+    }
+
+    const bucket = 'uforian-karaoke-tracks';
+    const key = `pitch_data_${songId}.json`;
+
+    const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
+    const s3 = new S3Client({ region: 'us-east-1' });
+
+    try {
+      const command = new GetObjectCommand({ Bucket: bucket, Key: key });
+      const response = await s3.send(command);
+      const str = await response.Body.transformToString();
+      return {
+        statusCode: 200,
+        headers: {
+          ...corsHeaders,
+          'Cache-Control': 'public, max-age=3600',
+        },
+        body: str,
+      };
+    } catch (s3Error) {
+      console.error('S3 Fetch Error in pitchProxy:', s3Error);
+      return { statusCode: 404, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'Pitch data not found in S3 bucket' }) };
+    }
+  } catch (e) {
+    console.error('pitchProxy error:', e);
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: e.message }) };
   }
 };
 
@@ -1546,6 +1766,260 @@ exports.rejectSuggestion = async (event) => {
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true }) };
   } catch (err) {
     return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: err.message }) };
+  }
+};
+
+// ============================================================================
+// VOICE COMMAND — AI-powered natural language song search
+// POST /voice-command { transcript: "Play Thenpaandi Seemaiyile" }
+// ============================================================================
+exports.voiceCommand = async (event) => {
+  try {
+    const { transcript, contextSongs } = JSON.parse(event.body || '{}');
+    if (!transcript || transcript.trim().length === 0) {
+      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'No transcript provided' }) };
+    }
+
+    const db = await getDb();
+    const col = db.collection('songs');
+
+    // Step 1: Use Gemini to parse the intent and extract filters
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+    const contextStr = contextSongs?.length ? `\n\nContext (recently shown songs):\n${JSON.stringify(contextSongs.map((s,i) => ({ index: i+1, title: s.title, movie: s.movie })))}` : '';
+
+    const intentPrompt = `You are an AI music assistant for an Ilayaraja Tamil film song app.
+Parse the following voice command and return a structured JSON intent.
+
+Voice command: "${transcript}"${contextStr}
+
+Return ONLY a raw JSON object (no markdown, no backticks) with this exact structure:
+{
+  "intent": "PLAY_SONG | LIST_SONGS | RANDOM_SONG | SONG_INFO | UNCLEAR",
+  "filters": {
+    "title": "song title if mentioned, null otherwise",
+    "movie": "film/movie name if mentioned, null otherwise",
+    "actors": "actor name if mentioned, null otherwise",
+    "singers": "singer name if mentioned, null otherwise",
+    "director": "director name if mentioned, null otherwise",
+    "year_from": null,
+    "year_to": null,
+    "decade": "1980s or 1990s etc if mentioned, null otherwise"
+  },
+  "speech_response": "A short, friendly spoken response to say back to the user (1 sentence)"
+}
+
+Intent rules:
+- PLAY_SONG: user wants to play a specific song. If they say "play any song from [movie]" without a title, map to LIST_SONGS and ask them to choose. If they say "play the first one", "second one" etc, look at the Context and return the title of that song.
+- LIST_SONGS: user wants to browse/list songs (e.g., 'show me', 'list', 'what songs'). Also use this for "play any song from [movie]" so they can pick one.
+- RANDOM_SONG: user wants any random song matching optional criteria (unless they specify a movie, then use LIST_SONGS).
+- SONG_INFO: user wants info about the currently playing song
+- UNCLEAR: cannot understand the command
+
+For decade queries like 'early 1990s' use year_from=1990, year_to=1993. 'Late 1980s' = 1987-1989.
+Normalize Tamil film names and song titles to their common English spelling (e.g., 'Nayakhan' -> 'Nayakan', 'Thenpaandi' -> 'Thenpandi').`;
+
+    const intentResult = await model.generateContent(intentPrompt);
+    const intentText = intentResult.response.text().replace(/```json/g,'').replace(/```/g,'').trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(intentText);
+    } catch (e) {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+        success: true, intent: 'UNCLEAR', songs: [], song: null,
+        speech_response: "Sorry, I didn't quite catch that. Try saying something like: Play Thenpaandi Seemaiyile, or List songs from Nayakan."
+      })};
+    }
+
+    const { intent, filters, speech_response } = parsed;
+
+    // Step 2: Build MongoDB query from filters
+    const buildQuery = (filters) => {
+      const query = {};
+      const conditions = [];
+
+      if (filters.title) {
+        conditions.push({ title: { $regex: filters.title.split(' ').join('|'), $options: 'i' } });
+      }
+      if (filters.movie) {
+        query.movie = { $regex: filters.movie, $options: 'i' };
+      }
+      if (filters.actors) {
+        conditions.push({
+          $or: [
+            { actors: { $elemMatch: { $regex: filters.actors, $options: 'i' } } },
+            { searchable_text: { $regex: filters.actors, $options: 'i' } }
+          ]
+        });
+      }
+      if (filters.singers) {
+        conditions.push({
+          $or: [
+            { singers: { $elemMatch: { $regex: filters.singers, $options: 'i' } } },
+            { searchable_text: { $regex: filters.singers, $options: 'i' } }
+          ]
+        });
+      }
+      if (filters.director) {
+        query.director = { $regex: filters.director, $options: 'i' };
+      }
+      if (filters.decade) {
+        query.decade = { $regex: filters.decade, $options: 'i' };
+      }
+      if (filters.year_from || filters.year_to) {
+        query.year = {};
+        if (filters.year_from) query.year.$gte = Number(filters.year_from);
+        if (filters.year_to) query.year.$lte = Number(filters.year_to);
+      }
+      if (conditions.length > 0) {
+        query.$and = conditions;
+      }
+      return query;
+    };
+
+    const mongoQuery = buildQuery(filters || {});
+    const projection = { _id: 0, id: 1, title: 1, movie: 1, year: 1, actors: 1, singers: 1, director: 1, spotify_id: 1 };
+
+    if (intent === 'UNCLEAR' || intent === 'SONG_INFO') {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+        success: true, intent, songs: [], song: null, speech_response
+      })};
+    }
+
+    if (intent === 'PLAY_SONG') {
+      let song = await col.findOne(mongoQuery, { projection });
+      if (!song && filters?.title) {
+        // Fallback: broader title search
+        const titleFirstWord = (filters.title || '').split(' ')[0];
+        song = await col.findOne(
+          { 
+            $or: [
+              { title: { $regex: titleFirstWord, $options: 'i' } },
+              { searchable_text: { $regex: titleFirstWord, $options: 'i' } }
+            ]
+          },
+          { projection }
+        );
+      }
+      if (!song) {
+        return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+          success: true, intent: 'NOT_FOUND', songs: [], song: null,
+          speech_response: `Sorry, I couldn't find "${filters?.title || 'that song'}" in our collection.`
+        })};
+      }
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+        success: true, intent: 'PLAY_SONG', song, songs: [],
+        speech_response: speech_response || `Now playing ${song.title} from ${song.movie}`
+      })};
+    }
+
+    if (intent === 'RANDOM_SONG') {
+      const matches = await col.find(mongoQuery, { projection }).toArray();
+      if (matches.length === 0) {
+        return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+          success: true, intent: 'NOT_FOUND', songs: [], song: null,
+          speech_response: "I couldn't find any songs matching that. Try a different filter."
+        })};
+      }
+      const song = matches[Math.floor(Math.random() * matches.length)];
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+        success: true, intent: 'PLAY_SONG', song, songs: [],
+        speech_response: speech_response || `Here's ${song.title} from ${song.movie}`
+      })};
+    }
+
+    // LIST_SONGS
+    const songs = await col.find(mongoQuery, { projection }).limit(20).toArray();
+    if (songs.length === 0) {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+        success: true, intent: 'NOT_FOUND', songs: [], song: null,
+        speech_response: "I couldn't find any songs matching that criteria in our collection."
+      })};
+    }
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+      success: true, intent: 'LIST_SONGS', song: null, songs,
+      speech_response: speech_response || `Found ${songs.length} song${songs.length > 1 ? 's' : ''}. Here they are.`
+    })};
+
+  } catch (error) {
+    console.error('voiceCommand error:', error);
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: error.message }) };
+  }
+};
+
+// ============================================================================
+// 19: POST DAILY SOCIALS (SCHEDULED TASK)
+// ============================================================================
+exports.postDailySocials = async (event) => {
+  try {
+    const db = await getDb();
+    const todayStr = new Date().toISOString().split('T')[0];
+    
+    // Check if already posted today
+    const systemStatusCol = db.collection("system_status");
+    const status = await systemStatusCol.findOne({ id: `social_post_${todayStr}` });
+    
+    if (status && status.posted) {
+      console.log(`Already posted socials for ${todayStr}. Skipping.`);
+      return { statusCode: 200, body: JSON.stringify({ success: true, message: 'Already posted today.' }) };
+    }
+    
+    // Fetch today's song using existing handler logic
+    const songOfDayResponse = await exports.getSongOfDay({ headers: {}, queryStringParameters: { date: todayStr } });
+    
+    if (songOfDayResponse.statusCode !== 200) {
+      throw new Error(`Failed to fetch song of the day: ${songOfDayResponse.body}`);
+    }
+    
+    const parsedBody = JSON.parse(songOfDayResponse.body);
+    const song = parsedBody.song;
+    
+    if (!song || !song.whatsapp_share_text) {
+       throw new Error("No whatsapp_share_text available to post.");
+    }
+    
+    const domain = process.env.DOMAIN_NAME || 'music.uforiansports.com';
+    const postText = `${song.whatsapp_share_text}\n\nListen now: https://${domain}/?songId=${song.id}`;
+    
+    // Post to Twitter
+    if (process.env.TWITTER_CONSUMER_KEY && process.env.TWITTER_SECRET_KEY) {
+      const { TwitterApi } = require('twitter-api-v2');
+      const twitterClient = new TwitterApi({
+        appKey: process.env.TWITTER_CONSUMER_KEY,
+        appSecret: process.env.TWITTER_SECRET_KEY,
+        accessToken: process.env.TWITTER_ACCESS_TOKEN || '',
+        accessSecret: process.env.TWITTER_ACCESS_TOKEN_SECRET || '',
+      });
+      
+      const rwClient = twitterClient.readWrite;
+      
+      try {
+        await rwClient.v2.tweet(postText);
+        console.log("Successfully posted to Twitter");
+      } catch (twitterErr) {
+        console.error("Twitter post error:", twitterErr);
+        // Fail the lambda so EventBridge can retry or log failure
+        throw twitterErr;
+      }
+    } else {
+      console.log("Twitter credentials missing, skipping Twitter post.");
+    }
+    
+    // Mark as posted
+    await systemStatusCol.updateOne(
+      { id: `social_post_${todayStr}` },
+      { $set: { posted: true, postedAt: new Date() } },
+      { upsert: true }
+    );
+    
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ success: true, message: 'Socials posted successfully.' })
+    };
+  } catch (error) {
+    console.error('Error in postDailySocials:', error);
+    return { statusCode: 500, body: JSON.stringify({ success: false, error: error.message }) };
   }
 };
 

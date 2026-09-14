@@ -11,7 +11,7 @@ import LyricsViewer from './components/LyricsViewer';
 import SnippetEditorModal from './components/SnippetEditorModal';
 import { parseLrc } from './utils/lyrics';
 import { YIN } from 'pitchfinder';
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const SPOTIFY_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || '70a1295210854963b95b8b687eb68883';
 
 // ============================================================================
@@ -481,9 +481,11 @@ export default function IlayarajaApp() {
         
         let endpoint = `${API_BASE_URL}/song/today`;
         if (songId) {
-          endpoint += `?songId=${songId}`;
+          endpoint += `?songId=${songId}&_t=${Date.now()}`;
         } else if (previewDate) {
-          endpoint += `?date=${previewDate}`;
+          endpoint += `?date=${previewDate}&_t=${Date.now()}`;
+        } else {
+          endpoint += `?_t=${Date.now()}`;
         }
           
         const fetchOptions = { headers: {} };

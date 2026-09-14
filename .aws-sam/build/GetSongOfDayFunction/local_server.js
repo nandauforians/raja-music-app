@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config({ path: '.env' });
+require('dotenv').config({ path: '../.env' });
 const lambdaFunctions = require('./lambda_functions');
 
 const app = express();
@@ -233,7 +233,7 @@ app.post('/admin/suggestions/:id/reject', async (req, res) => {
 });
 
 
-const PORT = 3000;
+const PORT = 4242;
 app.listen(PORT, () => {
   console.log(`🚀 Local Backend API running on http://localhost:${PORT}`);
 });

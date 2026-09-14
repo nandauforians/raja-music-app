@@ -1987,7 +1987,9 @@ exports.postDailySocials = async (event) => {
     }
     
     const domain = process.env.DOMAIN_NAME || 'music.uforiansports.com';
-    const postText = `${song.whatsapp_share_text}\n\nListen now: https://${domain}/?songId=${song.id}`;
+    
+    // Check if today is Tuesday (2) in UTC (which matches 9 AM IST)
+    const isTuesday = new Date().getDay() === 2;
     
     // Post to Twitter
     if (process.env.TWITTER_CONSUMER_KEY && process.env.TWITTER_SECRET_KEY) {
@@ -2002,8 +2004,22 @@ exports.postDailySocials = async (event) => {
       const rwClient = twitterClient.readWrite;
       
       try {
-        await rwClient.v2.tweet(postText);
-        console.log("Successfully posted to Twitter");
+        if (isTuesday) {
+          // TUESDAY: Post the real URL using the "Link in Reply" method to maximize reach
+          const mainPostText = `${song.whatsapp_share_text}\n\n🎧 Listen to the full track (Link in reply below 👇)`;
+          const replyPostText = `Listen now: https://${domain}/?songId=${song.id}`;
+          
+          const mainTweet = await rwClient.v2.tweet(mainPostText);
+          await rwClient.v2.reply(replyPostText, mainTweet.data.id);
+          
+          console.log("Successfully posted to Twitter (Tuesday: Main + URL Reply)");
+        } else {
+          // OTHER DAYS: Post a single obfuscated tweet to save API costs
+          const obfuscatedPostText = `${song.whatsapp_share_text}\n\n🎧 Listen now: music[dot]uforiansports[dot]com`;
+          await rwClient.v2.tweet(obfuscatedPostText);
+          
+          console.log("Successfully posted to Twitter (Obfuscated Text)");
+        }
       } catch (twitterErr) {
         console.error("Twitter post error:", twitterErr);
         // Fail the lambda so EventBridge can retry or log failure

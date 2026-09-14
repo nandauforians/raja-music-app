@@ -120,10 +120,12 @@ export default function Admin() {
     }
   }, [previewActiveLyricIndex, previewLyricsLanguage]);
 
+  const [autoFillMode, setAutoFillMode] = useState('spotify'); // 'spotify' | 'youtube'
   const [spotifyQuery, setSpotifyQuery] = useState('');
   const [isSearchingSpotify, setIsSearchingSpotify] = useState(false);
   const [spotifyResults, setSpotifyResults] = useState([]);
   
+  const [youtubeAutoFillQuery, setYoutubeAutoFillQuery] = useState('');
   const [isSearchingYoutube, setIsSearchingYoutube] = useState(false);
   const [youtubeResults, setYoutubeResults] = useState([]);
   const [ytSearchSong, setYtSearchSong] = useState(null); // song object being searched for YouTube URL from Schedule tab
@@ -146,10 +148,39 @@ export default function Admin() {
     setIsSearchingSpotify(false);
   };
 
+  const handleYoutubeAutoFillSearch = async (e) => {
+    e?.preventDefault();
+    if (!youtubeAutoFillQuery) return;
+    setIsSearchingYoutube(true);
+    setYoutubeResults([]);
+    try {
+      const q = encodeURIComponent(youtubeAutoFillQuery);
+      const res = await fetch(`${API_BASE_URL}/admin/youtube-search?q=${q}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.status === 401) return handleLogout();
+      const data = await res.json();
+      if (data.success) {
+        setYoutubeResults(data.videos || []);
+      } else {
+        alert(data.error);
+      }
+    } catch (err) {
+      alert(err.message);
+    }
+    setIsSearchingYoutube(false);
+  };
+
   const selectSpotifyResult = (track) => {
     setNewSong({ ...newSong, title: track.title, movie: track.movie, year: track.year, spotify_id: track.spotify_id });
     setSpotifyResults([]);
     setSpotifyQuery('');
+  };
+
+  const selectYoutubeResultForAutoFill = (video) => {
+    setNewSong({ ...newSong, title: video.title, youtube_url: video.url });
+    setYoutubeResults([]);
+    setYoutubeAutoFillQuery('');
   };
 
   const handleYoutubeSearch = async (title, movie) => {
@@ -397,8 +428,8 @@ export default function Admin() {
 
   const handleAddSong = async (e, force = false) => {
     if (e) e.preventDefault();
-    if (!newSong.title || !newSong.movie || !newSong.spotify_id) {
-      alert("Title, Movie, and Spotify ID are required.");
+    if (!newSong.title || !newSong.movie || (!newSong.spotify_id && !newSong.youtube_url)) {
+      alert("Title, Movie, and either a Spotify ID or YouTube URL are required.");
       return;
     }
     try {
@@ -767,21 +798,57 @@ export default function Admin() {
             </div>
             
             <div className="mb-6 p-4 bg-zinc-900 rounded-lg border border-zinc-800">
-              <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Auto-fill from Spotify</label>
-              <form onSubmit={handleSpotifySearch} className="flex gap-2 mb-2">
-                <input 
-                  type="text" 
-                  placeholder="Search track name..." 
-                  value={spotifyQuery}
-                  onChange={e => setSpotifyQuery(e.target.value)}
-                  className="flex-1 px-4 py-2 bg-black border border-zinc-700 rounded-lg text-sm focus:outline-none focus:border-amber-500"
-                />
-                <button type="submit" disabled={isSearchingSpotify} className="px-4 bg-zinc-700 hover:bg-zinc-600 transition-colors rounded-lg text-sm font-semibold disabled:opacity-50">
-                  {isSearchingSpotify ? '...' : 'Search'}
-                </button>
-              </form>
+              <div className="flex justify-between items-center mb-3">
+                <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                  Auto-fill Song Metadata
+                </label>
+                <div className="flex gap-1 bg-black p-1 rounded-lg border border-zinc-800 text-xs">
+                  <button 
+                    type="button"
+                    onClick={() => { setAutoFillMode('spotify'); setSpotifyResults([]); setYoutubeResults([]); }}
+                    className={`px-3 py-1 rounded font-semibold transition-colors ${autoFillMode === 'spotify' ? 'bg-amber-500 text-black' : 'text-zinc-400 hover:text-white'}`}
+                  >
+                    🎵 Spotify
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => { setAutoFillMode('youtube'); setSpotifyResults([]); setYoutubeResults([]); }}
+                    className={`px-3 py-1 rounded font-semibold transition-colors ${autoFillMode === 'youtube' ? 'bg-red-600 text-white' : 'text-zinc-400 hover:text-white'}`}
+                  >
+                    ▶️ YouTube
+                  </button>
+                </div>
+              </div>
+
+              {autoFillMode === 'spotify' ? (
+                <form onSubmit={handleSpotifySearch} className="flex gap-2 mb-2">
+                  <input 
+                    type="text" 
+                    placeholder="Search Spotify track name..." 
+                    value={spotifyQuery}
+                    onChange={e => setSpotifyQuery(e.target.value)}
+                    className="flex-1 px-4 py-2 bg-black border border-zinc-700 rounded-lg text-sm focus:outline-none focus:border-amber-500 text-white"
+                  />
+                  <button type="submit" disabled={isSearchingSpotify} className="px-4 bg-zinc-700 hover:bg-zinc-600 transition-colors rounded-lg text-sm font-semibold text-white disabled:opacity-50">
+                    {isSearchingSpotify ? '...' : 'Search'}
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleYoutubeAutoFillSearch} className="flex gap-2 mb-2">
+                  <input 
+                    type="text" 
+                    placeholder="Search YouTube for song..." 
+                    value={youtubeAutoFillQuery}
+                    onChange={e => setYoutubeAutoFillQuery(e.target.value)}
+                    className="flex-1 px-4 py-2 bg-black border border-zinc-700 rounded-lg text-sm focus:outline-none focus:border-red-500 text-white"
+                  />
+                  <button type="submit" disabled={isSearchingYoutube} className="px-4 bg-red-800 hover:bg-red-700 transition-colors rounded-lg text-sm font-semibold text-white disabled:opacity-50">
+                    {isSearchingYoutube ? '...' : 'Search'}
+                  </button>
+                </form>
+              )}
               
-              {spotifyResults.length > 0 && (
+              {autoFillMode === 'spotify' && spotifyResults.length > 0 && (
                 <div className="flex flex-col gap-1 max-h-48 overflow-y-auto mt-2">
                   {spotifyResults.map(r => (
                     <div key={r.spotify_id} onClick={() => selectSpotifyResult(r)} className="p-2 hover:bg-zinc-800 cursor-pointer rounded text-sm flex gap-3 items-center">
@@ -794,6 +861,20 @@ export default function Admin() {
                   ))}
                 </div>
               )}
+
+              {autoFillMode === 'youtube' && youtubeResults.length > 0 && (
+                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto bg-neutral-950 p-2 rounded-lg border border-neutral-800">
+                  {youtubeResults.map(v => (
+                    <div key={v.videoId} onClick={() => selectYoutubeResultForAutoFill(v)} className="flex gap-2 p-2 hover:bg-neutral-800 rounded cursor-pointer">
+                      <img src={v.thumbnail} className="w-24 h-16 object-cover rounded" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white truncate">{v.title}</p>
+                        <p className="text-xs text-neutral-400">{v.channel} • {v.duration}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <form onSubmit={handleAddSong} className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -801,7 +882,7 @@ export default function Admin() {
               <input type="text" id="newSongMovie" placeholder="Movie *" required value={newSong.movie} onChange={e => setNewSong({...newSong, movie: e.target.value})} className="px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg" />
               <input type="text" id="newSongDirector" placeholder="Music Director" value={newSong.director} onChange={e => setNewSong({...newSong, director: e.target.value})} className="px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg" />
               <input type="text" id="newSongYear" placeholder="Year (e.g. 1986)" value={newSong.year} onChange={e => setNewSong({...newSong, year: e.target.value})} className="px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg" />
-              <input type="text" id="newSongSpotifyId" placeholder="Spotify Track ID *" required value={newSong.spotify_id} onChange={e => setNewSong({...newSong, spotify_id: e.target.value})} className="px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg md:col-span-2" />
+              <input type="text" id="newSongSpotifyId" placeholder="Spotify Track ID (optional if YouTube URL provided)" value={newSong.spotify_id} onChange={e => setNewSong({...newSong, spotify_id: e.target.value})} className="px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg md:col-span-2" />
               <div className="md:col-span-2">
                 <label className="block text-xs font-semibold text-purple-400 uppercase tracking-wider mb-1.5">🎤 Karaoke Track URL (optional)</label>
                 <input

@@ -4,35 +4,52 @@ const { signCloudFrontUrl } = require('../utils/cloudfront');
 const { corsHeaders } = require('../utils/responses');
 const { ObjectId } = require('mongodb');
 
+const { addSong } = require('./songs');
+
 exports.suggestSong = async (event) => {
   try {
-    const { userId, userName, spotifyId, title, movie, year, previewUrl, albumCoverUrl } = JSON.parse(event.body);
-    if (!userId || !spotifyId) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing userId or spotifyId' }) };
+    const { userId, userName, spotifyId, youtubeUrl, title, movie, year, previewUrl, albumCoverUrl } = JSON.parse(event.body);
+    if (!userId || (!spotifyId && !title && !youtubeUrl)) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing userId or song details (spotifyId, youtubeUrl, or title)' }) };
 
     const db = await getDb();
     
     // Check if song is already in DB
-    const existing = await db.collection('songs').findOne({ $or: [{ spotifyId }, { title }] });
-    if (existing) {
-      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Song already exists in the catalog.' }) };
+    const checkQueries = [];
+    if (spotifyId) checkQueries.push({ spotify_id: spotifyId });
+    if (title) checkQueries.push({ title });
+    if (youtubeUrl) checkQueries.push({ youtube_url: youtubeUrl });
+
+    if (checkQueries.length > 0) {
+      const existing = await db.collection('songs').findOne({ $or: checkQueries });
+      if (existing) {
+        return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Song already exists in the catalog.' }) };
+      }
     }
 
     // Check if suggestion already exists
-    const existingSugg = await db.collection('song_suggestions').findOne({ spotifyId, status: 'pending' });
-    if (existingSugg) {
-      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'This song has already been suggested and is pending review.' }) };
+    const suggQueries = [];
+    if (spotifyId) suggQueries.push({ spotifyId });
+    if (title) suggQueries.push({ title });
+    if (youtubeUrl) suggQueries.push({ youtubeUrl });
+
+    if (suggQueries.length > 0) {
+      const existingSugg = await db.collection('song_suggestions').findOne({ $or: suggQueries, status: 'pending' });
+      if (existingSugg) {
+        return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'This song has already been suggested and is pending review.' }) };
+      }
     }
 
     const suggestion = {
       _id: new (require('mongodb').ObjectId)(),
       userId,
       userName,
-      spotifyId,
-      title,
-      movie,
-      year,
-      previewUrl,
-      albumCoverUrl,
+      spotifyId: spotifyId || '',
+      youtubeUrl: youtubeUrl || '',
+      title: title || 'Untitled Suggestion',
+      movie: movie || '',
+      year: year || '',
+      previewUrl: previewUrl || '',
+      albumCoverUrl: albumCoverUrl || '',
       status: 'pending',
       suggestedAt: new Date()
     };
@@ -66,23 +83,20 @@ exports.approveSuggestion = async (event) => {
     if (!suggestion) return { statusCode: 404, headers: corsHeaders, body: JSON.stringify({ error: 'Suggestion not found' }) };
     if (suggestion.status !== 'pending') return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Suggestion already processed' }) };
 
-    // Approve logic: Update status, and we can trigger addSong logic or just set status to approved and let client call addSong
-    // To keep it simple, we just mark it approved here. The client can call addSong separately, or we can do it here.
-    // Let's do it here: call the actual addSong function logic.
-    // We can simulate an event to exports.addSong.
     const addEvent = {
       body: JSON.stringify({
         title: suggestion.title,
         movie: suggestion.movie,
         year: suggestion.year,
-        spotify_id: suggestion.spotifyId,
+        spotify_id: suggestion.spotifyId || '',
+        youtube_url: suggestion.youtubeUrl || '',
         preview_url: suggestion.previewUrl,
         album_cover_url: suggestion.albumCoverUrl
       }),
       headers: event.headers,
-      requestContext: { authorizer: { principalId: 'admin' } } // fake authorizer for admin
+      requestContext: { authorizer: { principalId: 'admin' } }
     };
-    const addRes = await exports.addSong(addEvent);
+    const addRes = await addSong(addEvent);
     const parsedRes = JSON.parse(addRes.body);
 
     if (parsedRes.success) {

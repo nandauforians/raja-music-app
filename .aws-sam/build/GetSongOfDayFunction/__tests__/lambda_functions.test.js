@@ -1,22 +1,31 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('@google/generative-ai', () => {
+  const MockGenAI = vi.fn().mockImplementation(() => ({
+    getGenerativeModel: vi.fn().mockReturnValue({
+      generateContent: vi.fn().mockResolvedValue({
+        response: { 
+          text: () => JSON.stringify({
+            intent: 'PLAY_SONG',
+            filters: { title: 'Thenpaandi Seemaiyile' },
+            speech_response: 'Playing Thenpaandi Seemaiyile'
+          })
+        }
+      })
+    })
+  }));
+  return {
+    GoogleGenerativeAI: MockGenAI,
+    default: MockGenAI
+  };
+});
+
 import * as lambda from '../lambda_functions';
 import { setMockClient } from '../utils/db'; // Import the db util directly
 
 // Set up env vars needed for tests
 process.env.MONGODB_URI = 'mongodb://mockdb';
 process.env.GEMINI_API_KEY = 'mockgeminikey';
-
-vi.mock('@google/generative-ai', () => {
-  return {
-    GoogleGenerativeAI: vi.fn().mockImplementation(() => ({
-      getGenerativeModel: vi.fn().mockReturnValue({
-        generateContent: vi.fn().mockResolvedValue({
-          response: { text: () => 'Mock Gemini Trivia' }
-        })
-      })
-    }))
-  };
-});
 
 // We still mock mongodb for ObjectId
 vi.mock('mongodb', () => {
@@ -207,6 +216,22 @@ describe('Lambda Functions Unit Tests', () => {
       expect(response.statusCode).toBe(400);
       const body = JSON.parse(response.body);
       expect(body.message || body.error).toContain('already exists');
+    });
+  });
+
+  describe('voiceCommand', () => {
+    it('returns 400 when transcript is missing', async () => {
+      const event = { body: JSON.stringify({}) };
+      const response = await lambda.voiceCommand(event);
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('processes transcript using Gemini and returns response', async () => {
+      const event = { body: JSON.stringify({ transcript: 'Play Thenpaandi Seemaiyile' }) };
+      const response = await lambda.voiceCommand(event);
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.success).toBe(true);
     });
   });
 });

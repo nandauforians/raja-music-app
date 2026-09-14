@@ -3,6 +3,7 @@ const { verifyAdminToken } = require('../utils/auth');
 const { signCloudFrontUrl } = require('../utils/cloudfront');
 const { corsHeaders } = require('../utils/responses');
 const { ObjectId } = require('mongodb');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
 const sqsClient = new SQSClient({ region: 'us-east-1' });

@@ -3,6 +3,7 @@ const { verifyAdminToken } = require('../utils/auth');
 const { signCloudFrontUrl } = require('../utils/cloudfront');
 const { corsHeaders } = require('../utils/responses');
 const { ObjectId } = require('mongodb');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const { s3, getS3SignedUrl, PutObjectCommand, GetObjectCommand, RECORDINGS_BUCKET } = require('../utils/s3');
 const ffmpeg = require('fluent-ffmpeg');

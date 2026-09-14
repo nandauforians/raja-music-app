@@ -3,6 +3,7 @@ const { verifyAdminToken } = require('../utils/auth');
 const { signCloudFrontUrl } = require('../utils/cloudfront');
 const { corsHeaders } = require('../utils/responses');
 const { ObjectId } = require('mongodb');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const { TwitterApi } = require('twitter-api-v2');
 
@@ -193,6 +194,10 @@ exports.voiceCommand = async (event) => {
     const db = await getDb();
     const col = db.collection('songs');
 
+    if (!process.env.GEMINI_API_KEY) {
+      return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'GEMINI_API_KEY is not configured' }) };
+    }
+
     // Step 1: Use Gemini to parse the intent and extract filters
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
@@ -230,19 +235,20 @@ Intent rules:
 For decade queries like 'early 1990s' use year_from=1990, year_to=1993. 'Late 1980s' = 1987-1989.
 Normalize Tamil film names and song titles to their common English spelling (e.g., 'Nayakhan' -> 'Nayakan', 'Thenpaandi' -> 'Thenpandi').`;
 
-    const intentResult = await model.generateContent(intentPrompt);
-    const intentText = intentResult.response.text().replace(/```json/g,'').replace(/```/g,'').trim();
-    let parsed;
+    let intent, filters, speech_response;
     try {
-      parsed = JSON.parse(intentText);
+      const intentResult = await model.generateContent(intentPrompt);
+      const intentText = intentResult.response.text().replace(/```json/g,'').replace(/```/g,'').trim();
+      const parsed = JSON.parse(intentText);
+      intent = parsed.intent;
+      filters = parsed.filters;
+      speech_response = parsed.speech_response;
     } catch (e) {
-      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
-        success: true, intent: 'UNCLEAR', songs: [], song: null,
-        speech_response: "Sorry, I didn't quite catch that. Try saying something like: Play Thenpaandi Seemaiyile, or List songs from Nayakan."
-      })};
+      console.warn('Gemini voiceCommand parsing warning/error, falling back to direct search:', e.message);
+      intent = 'PLAY_SONG';
+      filters = { title: transcript };
+      speech_response = `Searching for "${transcript}"`;
     }
-
-    const { intent, filters, speech_response } = parsed;
 
     // Step 2: Build MongoDB query from filters
     const buildQuery = (filters) => {

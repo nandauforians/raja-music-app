@@ -92,29 +92,52 @@ ilayaraja-app/
 
 ### 3.2 Backend Architecture
 
-**Lambda Functions:**
+**Core Philosophy:** 
+The backend must remain strictly modular to prevent logic leakage and maintain readability. The monolithic structure has been deprecated. We use a **Proxy Router** pattern.
 
-1. **`getSongOfDay` Function**
+**Directory Structure:**
+```
+backend/
+├── lambda_functions.js (The Proxy Router - NO LOGIC HERE)
+├── utils/
+│   ├── db.js (MongoDB connection pooling/caching)
+│   ├── auth.js (Token validation)
+│   ├── s3.js (File uploads/presigned URLs)
+│   └── responses.js (CORS headers)
+├── handlers/
+│   ├── admin.js
+│   ├── songs.js
+│   ├── users.js
+│   ├── karaoke.js
+│   ├── schedule.js
+│   ├── social.js
+│   └── suggestions.js
+└── __tests__/
+    └── lambda_functions.test.js
+```
+
+**Development Standards (CRITICAL):**
+1. **The Proxy Router (`lambda_functions.js`)**: This file must ONLY import handlers and export them via object spread (`...songs`, `...users`). **NEVER** write business logic, database queries, or helper functions in this file. It exists solely because AWS SAM `template.yaml` is statically bound to `lambda_functions.handlerName`.
+2. **Domain Handlers**: New API endpoints must be placed inside the appropriate domain file in `backend/handlers/`. If a new domain is introduced (e.g., `notifications`), create a new handler file and add it to the proxy router.
+3. **Database Caching**: Always use `const { getDb } = require('../utils/db');`. The `getDb()` function handles connection pooling and caches the MongoClient globally (`global.__MONGO_CACHED_CLIENT__`) to ensure AWS Lambda and Vitest compatibility.
+4. **Testing**: All logic must be strictly unit tested locally via `npm test` before deployment.
+5. **Syntax Checks**: Before executing `pipeline.sh`, run `node -c backend/lambda_functions.js` and `node -c backend/handlers/*.js`.
+
+**Key Lambda Functions (Examples):**
+
+1. **`getSongOfDay`** (in `handlers/songs.js`)
    - Triggered by: HTTP GET `/song/today`
-   - Logic: Query DynamoDB for today's date → return song
-   - Fallback: If no entry, pick from random rotation
-   - Response: JSON `{ song_id, title, artist, year, movie, spotify_url }`
+   - Logic: Query MongoDB for today's date → return song + Gemini Trivia
 
-2. **`scheduleSong` Function**
+2. **`scheduleSong`** (in `handlers/schedule.js`)
    - Triggered by: HTTP POST `/admin/schedule` (authenticated)
-   - Validates: Admin token via API key or AWS Cognito
-   - Stores: Date + Song mapping in DynamoDB
-   - Response: `{ success: true, scheduled_date, song }`
+   - Validates: Admin token via AWS Cognito or `auth.js`
 
-3. **`listSchedule` Function**
+3. **`listSchedule`** (in `handlers/schedule.js`)
    - GET `/admin/schedule?month=2025-02`
-   - Returns: Upcoming scheduled songs
-   - Used by: Admin panel calendar
 
-4. **`getSongList` Function**
+4. **`getSongList`** (in `handlers/songs.js`)
    - GET `/songs/list?page=1`
-   - Returns: Paginated list of all curated songs
-   - Used by: Admin song picker
 
 **API Endpoints:**
 ```

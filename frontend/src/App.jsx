@@ -66,6 +66,17 @@ export default function IlayarajaApp() {
 
   // Play-D-List State
   const [isPlayDListActive, setIsPlayDListActive] = useState(false);
+  const [playDListQueue, setPlayDListQueue] = useState([]);
+  const [playDListIndex, setPlayDListIndex] = useState(0);
+
+  const shuffleArray = (array) => {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  };
 
   const sortedArchiveSongs = useMemo(() => {
     return [...archiveSongs].sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date));
@@ -76,7 +87,7 @@ export default function IlayarajaApp() {
     setCurrentView('today');
     setMode('original');
     
-    let songsToUse = sortedArchiveSongs;
+    let songsToUse = archiveSongs;
     
     if (songsToUse.length === 0) {
       setArchiveLoading(true);
@@ -85,7 +96,7 @@ export default function IlayarajaApp() {
         const data = await res.json();
         if (data.success) {
           setArchiveSongs(data.archive);
-          songsToUse = [...data.archive].sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date));
+          songsToUse = data.archive;
         }
       } catch (err) {
         console.error("Error fetching archive for Play-D-List:", err);
@@ -95,25 +106,34 @@ export default function IlayarajaApp() {
     }
     
     if (songsToUse.length > 0) {
-      setSong(songsToUse[0]);
+      const shuffled = shuffleArray(songsToUse);
+      setPlayDListQueue(shuffled);
+      setPlayDListIndex(0);
+      setSong(shuffled[0]);
     }
   };
 
   const playDListNext = () => {
-    if (!song || !sortedArchiveSongs.length) return;
-    const currentIndex = sortedArchiveSongs.findIndex(s => s.id === song.id);
-    if (currentIndex !== -1 && currentIndex < sortedArchiveSongs.length - 1) {
-      setSong(sortedArchiveSongs[currentIndex + 1]);
+    if (!playDListQueue.length) return;
+    if (playDListIndex < playDListQueue.length - 1) {
+      const nextIdx = playDListIndex + 1;
+      setPlayDListIndex(nextIdx);
+      setSong(playDListQueue[nextIdx]);
     } else {
-      setIsPlayDListActive(false);
+      // Reshuffle for continuous random playback
+      const shuffled = shuffleArray(archiveSongs);
+      setPlayDListQueue(shuffled);
+      setPlayDListIndex(0);
+      setSong(shuffled[0]);
     }
   };
 
   const playDListPrev = () => {
-    if (!song || !sortedArchiveSongs.length) return;
-    const currentIndex = sortedArchiveSongs.findIndex(s => s.id === song.id);
-    if (currentIndex > 0) {
-      setSong(sortedArchiveSongs[currentIndex - 1]);
+    if (!playDListQueue.length) return;
+    if (playDListIndex > 0) {
+      const prevIdx = playDListIndex - 1;
+      setPlayDListIndex(prevIdx);
+      setSong(playDListQueue[prevIdx]);
     }
   };
 
@@ -1488,25 +1508,24 @@ export default function IlayarajaApp() {
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
                         </span>
-                        Play-D-List Active
+                        Play-D-List • Random Sequence
                         <span className="text-emerald-400/60 font-normal ml-1">
-                          ({sortedArchiveSongs.findIndex(s => s.id === song.id) + 1} of {sortedArchiveSongs.length})
+                          ({playDListIndex + 1} of {playDListQueue.length})
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
                         <button 
                           onClick={playDListPrev}
-                          disabled={sortedArchiveSongs.findIndex(s => s.id === song.id) === 0}
+                          disabled={playDListIndex === 0}
                           className="px-3 py-1.5 rounded-lg bg-black/40 hover:bg-black/60 text-emerald-100 text-xs font-medium transition-colors disabled:opacity-50 flex items-center gap-1"
                         >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg> Prev Day
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg> Previous
                         </button>
                         <button 
                           onClick={playDListNext}
-                          disabled={sortedArchiveSongs.findIndex(s => s.id === song.id) === sortedArchiveSongs.length - 1}
                           className="px-3 py-1.5 rounded-lg bg-black/40 hover:bg-black/60 text-emerald-100 text-xs font-medium transition-colors disabled:opacity-50 flex items-center gap-1"
                         >
-                          Next Day <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                          Next Song <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                         </button>
                         <button 
                           onClick={restoreTodaySong}

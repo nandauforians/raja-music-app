@@ -4,6 +4,7 @@ const { signCloudFrontUrl } = require('../utils/cloudfront');
 const { corsHeaders } = require('../utils/responses');
 const { ObjectId } = require('mongodb');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { getSongOfDay } = require('./songs');
 
 const { TwitterApi } = require('twitter-api-v2');
 
@@ -22,7 +23,7 @@ exports.postDailySocials = async (event) => {
     }
     
     // Fetch today's song using existing handler logic
-    const songOfDayResponse = await exports.getSongOfDay({ headers: {}, queryStringParameters: { date: todayStr } });
+    const songOfDayResponse = await getSongOfDay({ headers: {}, queryStringParameters: { date: todayStr } });
     
     if (songOfDayResponse.statusCode !== 200) {
       throw new Error(`Failed to fetch song of the day: ${songOfDayResponse.body}`);

@@ -182,8 +182,8 @@ exports.getArchive = async (event) => {
     const search = (event.queryStringParameters && event.queryStringParameters.q) ? event.queryStringParameters.q.toLowerCase() : '';
     const today = new Date().toISOString().split('T')[0];
     
-    // Get all scheduled songs strictly before today
-    const pastSchedules = await scheduleCol.find({ dateISO8601: { $lt: today } }).sort({ dateISO8601: -1 }).toArray();
+    // Get all scheduled songs up to and including today
+    const pastSchedules = await scheduleCol.find({ dateISO8601: { $lte: today } }).sort({ dateISO8601: -1 }).toArray();
     
     const results = [];
     for (const item of pastSchedules) {

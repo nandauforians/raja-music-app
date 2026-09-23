@@ -35,17 +35,28 @@ SpotifyClientSecret=\\"${env.SPOTIFY_CLIENT_SECRET}\\" \\
 GeminiApiKey=\\"${env.GEMINI_API_KEY}\\" \\
 DomainName=\\"${env.DOMAIN_NAME}\\" \\
 CloudFrontPrivateKey=\\"${privateKey}\\" \\
-TwitterConsumerKey=\\"${env.TWITTER_CONSUMER_KEY}\\" \\
-TwitterSecretKey=\\"${env.TWITTER_SECRET_KEY}\\" \\
-TwitterAccessToken=\\"\\" \\
-TwitterAccessTokenSecret=\\"\\"
+TwitterConsumerKey=\\"${env.TWITTER_CONSUMER_KEY || ''}\\" \\
+TwitterSecretKey=\\"${env.TWITTER_SECRET_KEY || ''}\\" \\
+TwitterAccessToken=\\"${env.TWITTER_ACCESS_TOKEN || ''}\\" \\
+TwitterAccessTokenSecret=\\"${env.TWITTER_ACCESS_TOKEN_SECRET || ''}\\" \\
+TwitterClientId=\\"${env.TWITTER_CLIENT_ID || ''}\\" \\
+TwitterClientSecret=\\"${env.TWITTER_CLIENT_SECRET || ''}\\" \\
+TwitterAccessToken2=\\"${env.TWITTER_ACCESS_TOKEN_2 || ''}\\" \\
+TwitterRefreshToken=\\"${env.TWITTER_REFRESH_TOKEN || ''}\\"
 """
 `;
 
 fs.writeFileSync('samconfig.toml', tomlContent);
 
+console.log('Building SAM artifacts...');
+const buildRes = spawnSync('sam', ['build'], { stdio: 'inherit' });
+if (buildRes.error || buildRes.status !== 0) {
+  console.error('SAM build failed', buildRes.error);
+  process.exit(buildRes.status || 1);
+}
+
 console.log('Deploying with samconfig.toml...');
-const res = spawnSync('sam', ['deploy'], { stdio: 'inherit' });
+const res = spawnSync('sam', ['deploy', '--no-confirm-changeset', '--no-fail-on-empty-changeset'], { stdio: 'inherit' });
 
 if (res.error) {
   console.error(res.error);

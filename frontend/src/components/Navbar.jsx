@@ -89,19 +89,17 @@ export default function Navbar({
         </button>
         
         {user && (
-          <>
-            <button 
-              onClick={() => setCurrentView('dashboard')}
-              className={`shrink-0 px-4 py-1.5 rounded-full text-xs lg:text-sm font-medium transition-colors ${currentView === 'dashboard' ? 'bg-amber-500 text-black shadow-lg' : 'text-zinc-400 hover:text-white'}`}>
-              Dashboard
-            </button>
-            <button 
-              onClick={() => setShowSuggestModal(true)}
-              className="shrink-0 px-4 py-1.5 rounded-full text-xs lg:text-sm font-medium transition-colors text-amber-500 hover:text-amber-400 hover:bg-amber-500/10 flex items-center gap-1">
-              💡 Suggest
-            </button>
-          </>
+          <button 
+            onClick={() => setCurrentView('dashboard')}
+            className={`shrink-0 px-4 py-1.5 rounded-full text-xs lg:text-sm font-medium transition-colors ${currentView === 'dashboard' ? 'bg-amber-500 text-black shadow-lg' : 'text-zinc-400 hover:text-white'}`}>
+            Dashboard
+          </button>
         )}
+        <button 
+          onClick={() => setShowSuggestModal(true)}
+          className="shrink-0 px-4 py-1.5 rounded-full text-xs lg:text-sm font-medium transition-colors text-amber-500 hover:text-amber-400 hover:bg-amber-500/10 flex items-center gap-1">
+          💡 Suggest
+        </button>
       </div>
 
     </nav>

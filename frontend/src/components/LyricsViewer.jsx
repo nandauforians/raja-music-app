@@ -48,16 +48,6 @@ export default function LyricsViewer({
         {hasDualLyrics && (
           <div className="flex items-center gap-2 bg-black/40 rounded-full p-1 border border-white/5">
             <button 
-              onClick={() => setLyricsLanguage('tanglish')}
-              className={`text-[10px] px-3 py-1 rounded-full font-medium transition-all ${
-                lyricsLanguage === 'tanglish' 
-                  ? 'bg-white/10 text-white' 
-                  : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              A
-            </button>
-            <button 
               onClick={() => setLyricsLanguage('tamil')}
               className={`text-[10px] px-3 py-1 rounded-full font-medium transition-all ${
                 lyricsLanguage === 'tamil' 
@@ -66,6 +56,16 @@ export default function LyricsViewer({
               }`}
             >
               அ
+            </button>
+            <button 
+              onClick={() => setLyricsLanguage('tanglish')}
+              className={`text-[10px] px-3 py-1 rounded-full font-medium transition-all ${
+                lyricsLanguage === 'tanglish' 
+                  ? 'bg-white/10 text-white' 
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              A
             </button>
           </div>
         )}

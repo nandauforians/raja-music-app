@@ -82,6 +82,30 @@ Parameters:
     Default: ""
     Description: Twitter Access Token Secret for posting
 
+  TwitterClientId:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Twitter OAuth2 Client ID for posting
+
+  TwitterClientSecret:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Twitter OAuth2 Client Secret for posting
+
+  TwitterAccessToken2:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Twitter OAuth2 Access Token for posting
+
+  TwitterRefreshToken:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Twitter OAuth2 Refresh Token for posting
+
   Environment:
     Type: String
     Default: production
@@ -107,6 +131,10 @@ Globals:
         TWITTER_SECRET_KEY: !Ref TwitterSecretKey
         TWITTER_ACCESS_TOKEN: !Ref TwitterAccessToken
         TWITTER_ACCESS_TOKEN_SECRET: !Ref TwitterAccessTokenSecret
+        TWITTER_CLIENT_ID: !Ref TwitterClientId
+        TWITTER_CLIENT_SECRET: !Ref TwitterClientSecret
+        TWITTER_ACCESS_TOKEN_2: !Ref TwitterAccessToken2
+        TWITTER_REFRESH_TOKEN: !Ref TwitterRefreshToken
 
 
 Resources:

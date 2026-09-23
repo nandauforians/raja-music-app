@@ -252,6 +252,39 @@ exports.getSongList = async (event) => {
   }
 };
 
+async function enrichSongMetadata(songData) {
+  const result = { ...songData };
+
+  const title = result.title || '';
+  const movie = result.movie || '';
+  const director = result.director || '';
+  const singers = Array.isArray(result.singers) ? result.singers.join(' ') : (result.singers || '');
+  const actors = Array.isArray(result.actors) ? result.actors.join(' ') : (result.actors || '');
+  const year = result.year || '';
+
+  result.searchable_text = [title, movie, director, singers, actors, year].filter(Boolean).join(' ').toLowerCase();
+
+  if (process.env.GEMINI_API_KEY && (!result.actors || (Array.isArray(result.actors) && result.actors.length === 0))) {
+    try {
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      const prompt = `For the Tamil film song "${title}" from the movie "${movie}" (${year}), list key actors starring in the song performance. Return ONLY a raw JSON array of strings, e.g. ["Actor 1", "Actor 2"]. No markdown.`;
+      
+      const res = await model.generateContent(prompt);
+      const text = res.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsedActors = JSON.parse(text);
+      if (Array.isArray(parsedActors) && parsedActors.length > 0) {
+        result.actors = parsedActors;
+        result.searchable_text = [title, movie, director, singers, parsedActors.join(' '), year].filter(Boolean).join(' ').toLowerCase();
+      }
+    } catch (err) {
+      console.warn("Gemini metadata enrichment warning:", err.message);
+    }
+  }
+
+  return result;
+}
+
 exports.addSong = async (event) => {
   try {
     await verifyAdminToken(event);

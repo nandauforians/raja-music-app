@@ -28,7 +28,7 @@ export default function IlayarajaApp() {
   // Lyrics State
   const [lyrics, setLyrics] = useState([]);
   const [plainLyrics, setPlainLyrics] = useState(null);
-  const [lyricsLanguage, setLyricsLanguage] = useState('tanglish'); // 'tanglish' | 'tamil'
+  const [lyricsLanguage, setLyricsLanguage] = useState('tamil'); // 'tanglish' | 'tamil'
   const [currentTimeMs, setCurrentTimeMs] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const lyricsContainerRef = useRef(null);

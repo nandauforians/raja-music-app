@@ -8,8 +8,8 @@ const { addSong } = require('./songs');
 
 exports.suggestSong = async (event) => {
   try {
-    const { userId, userName, spotifyId, youtubeUrl, title, movie, year, previewUrl, albumCoverUrl } = JSON.parse(event.body);
-    if (!userId || (!spotifyId && !title && !youtubeUrl)) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing userId or song details (spotifyId, youtubeUrl, or title)' }) };
+    const { userId, userName, submittedBy, spotifyId, youtubeUrl, title, movie, year, previewUrl, albumCoverUrl } = JSON.parse(event.body || '{}');
+    if (!spotifyId && !title && !youtubeUrl) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing song details (spotifyId, youtubeUrl, or title)' }) };
 
     const db = await getDb();
     
@@ -39,10 +39,14 @@ exports.suggestSong = async (event) => {
       }
     }
 
+    const finalUserId = userId || 'anonymous';
+    const finalUserName = (userName && userName.trim()) || (submittedBy && submittedBy.trim()) || 'Anonymous User';
+
     const suggestion = {
       _id: new (require('mongodb').ObjectId)(),
-      userId,
-      userName,
+      userId: finalUserId,
+      userName: finalUserName,
+      submittedBy: finalUserName,
       spotifyId: spotifyId || '',
       youtubeUrl: youtubeUrl || '',
       title: title || 'Untitled Suggestion',

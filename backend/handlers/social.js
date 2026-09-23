@@ -42,38 +42,61 @@ exports.postDailySocials = async (event) => {
     const isTuesday = new Date().getDay() === 2;
     
     // Post to Twitter
-    if (process.env.TWITTER_CONSUMER_KEY && process.env.TWITTER_SECRET_KEY) {
+    if (process.env.TWITTER_ACCESS_TOKEN_2 || (process.env.TWITTER_CONSUMER_KEY && process.env.TWITTER_SECRET_KEY)) {
       const { TwitterApi } = require('twitter-api-v2');
-      const twitterClient = new TwitterApi({
-        appKey: process.env.TWITTER_CONSUMER_KEY,
-        appSecret: process.env.TWITTER_SECRET_KEY,
-        accessToken: process.env.TWITTER_ACCESS_TOKEN || '',
-        accessSecret: process.env.TWITTER_ACCESS_TOKEN_SECRET || '',
-      });
-      
-      const rwClient = twitterClient.readWrite;
-      
-      try {
+      let twitterClient;
+
+      if (process.env.TWITTER_ACCESS_TOKEN_2) {
+        twitterClient = new TwitterApi(process.env.TWITTER_ACCESS_TOKEN_2);
+      } else {
+        twitterClient = new TwitterApi({
+          appKey: process.env.TWITTER_CONSUMER_KEY,
+          appSecret: process.env.TWITTER_SECRET_KEY,
+          accessToken: process.env.TWITTER_ACCESS_TOKEN || '',
+          accessSecret: process.env.TWITTER_ACCESS_TOKEN_SECRET || '',
+        });
+      }
+
+      const postTweets = async (client) => {
         if (isTuesday) {
           // TUESDAY: Post the real URL using the "Link in Reply" method to maximize reach
           const mainPostText = `${song.whatsapp_share_text}\n\n🎧 Listen to the full track (Link in reply below 👇)`;
           const replyPostText = `Listen now: https://${domain}/?songId=${song.id}`;
           
-          const mainTweet = await rwClient.v2.tweet(mainPostText);
-          await rwClient.v2.reply(replyPostText, mainTweet.data.id);
+          const mainTweet = await client.v2.tweet(mainPostText);
+          await client.v2.reply(replyPostText, mainTweet.data.id);
           
           console.log("Successfully posted to Twitter (Tuesday: Main + URL Reply)");
         } else {
           // OTHER DAYS: Post a single obfuscated tweet to save API costs
           const obfuscatedPostText = `${song.whatsapp_share_text}\n\n🎧 Listen now: music[dot]uforiansports[dot]com`;
-          await rwClient.v2.tweet(obfuscatedPostText);
+          await client.v2.tweet(obfuscatedPostText);
           
           console.log("Successfully posted to Twitter (Obfuscated Text)");
         }
+      };
+
+      try {
+        await postTweets(twitterClient);
       } catch (twitterErr) {
-        console.error("Twitter post error:", twitterErr);
-        // Fail the lambda so EventBridge can retry or log failure
-        throw twitterErr;
+        if ((twitterErr.code === 401 || twitterErr.status === 401) && process.env.TWITTER_CLIENT_ID && process.env.TWITTER_CLIENT_SECRET && process.env.TWITTER_REFRESH_TOKEN) {
+          console.log("OAuth 2.0 access token expired (401). Attempting refresh...");
+          try {
+            const refreshTokenClient = new TwitterApi({
+              clientId: process.env.TWITTER_CLIENT_ID,
+              clientSecret: process.env.TWITTER_CLIENT_SECRET,
+            });
+            const { client: refreshedClient } = await refreshTokenClient.refreshOAuth2Token(process.env.TWITTER_REFRESH_TOKEN);
+            await postTweets(refreshedClient);
+            console.log("Successfully posted to Twitter after OAuth 2.0 refresh");
+          } catch (refreshErr) {
+            console.error("Twitter OAuth2 refresh error:", refreshErr);
+            throw twitterErr;
+          }
+        } else {
+          console.error("Twitter post error:", twitterErr);
+          throw twitterErr;
+        }
       }
     } else {
       console.log("Twitter credentials missing, skipping Twitter post.");

@@ -1405,7 +1405,8 @@ export default function Admin() {
               <input type="text" placeholder="Movie *" required value={editingSong.movie} onChange={e => setEditingSong({...editingSong, movie: e.target.value})} className="px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white" />
               <input type="text" placeholder="Music Director" value={editingSong.director || ''} onChange={e => setEditingSong({...editingSong, director: e.target.value})} className="px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white" />
               <input type="text" placeholder="Year (e.g. 1986)" value={editingSong.year || ''} onChange={e => setEditingSong({...editingSong, year: e.target.value})} className="px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white" />
-              <input type="text" placeholder="Spotify Track ID *" required value={editingSong.spotify_id} onChange={e => setEditingSong({...editingSong, spotify_id: e.target.value})} className="px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white md:col-span-2" />
+              <input type="text" placeholder="Singers (e.g. S. P. Balasubrahmanyam, K. S. Chithra)" value={editingSong.singers || ''} onChange={e => setEditingSong({...editingSong, singers: e.target.value})} className="px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white md:col-span-2" />
+              <input type="text" placeholder="Spotify Track ID (optional)" value={editingSong.spotify_id || ''} onChange={e => setEditingSong({...editingSong, spotify_id: e.target.value})} className="px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white md:col-span-2" />
               
               <div className="md:col-span-2 mt-2">
                 <label className="block text-xs font-semibold text-purple-400 uppercase tracking-wider mb-1.5">🎤 Karaoke Track URL (optional)</label>

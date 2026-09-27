@@ -102,6 +102,7 @@ exports.scoreVocal = async (event) => {
 
     const prompt = `You are a trained classical playback singer and a strict but constructive talent show judge (like K. S. Chithra or Mano).
 I am providing you with an audio recording of a user singing karaoke to the Ilayaraja song "${song.title}" from the movie ${song.movie}.
+${song.singers ? `The original singers of this song are: ${song.singers}.` : ''}
 Here are the lyrics they are singing:
 ---
 ${song.lyrics || "No lyrics provided, please judge based on pitch and melody."}
@@ -110,6 +111,7 @@ The user's mathematical pitch accuracy score compared to the original singer is 
 
 Please analyze their vocal performance technically and objectively. 
 Do not be overly dramatic or enthusiastic. Provide grounded, technical feedback on their pitch, rhythm, breath control, and expression. Use the provided pitch accuracy score to inform your judgment.
+IMPORTANT: When comparing to the original singer, do not assume it is SPB (S. P. Balasubrahmanyam) unless they are specifically mentioned in the singers list or if it's obvious from the audio. Use the provided original singers list for context.
 Return your judgment strictly as a JSON object with three fields:
 1. "score": an integer from 0 to 100.
 2. "brief_summary": a short, technical, 1-2 sentence feedback (e.g. "Good pitch control, but watch your breath support on the higher notes.").

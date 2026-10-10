@@ -809,6 +809,40 @@ Resources:
       Tags:
         Environment: !Ref Environment
 
+  GeneratePosterCueFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AppName}-generate-poster-cue'
+      CodeUri: backend/
+      Handler: lambda_functions.generatePosterCue
+      Events:
+        GeneratePosterCueApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /admin/generate-poster-cue
+            Method: POST
+      Tags:
+        Environment: !Ref Environment
+
+  GeneratePosterImageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AppName}-generate-poster-image'
+      CodeUri: backend/
+      Handler: lambda_functions.generatePosterImage
+      Timeout: 60
+      MemorySize: 512
+      Events:
+        GeneratePosterImageApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /admin/generate-poster-image
+            Method: POST
+      Tags:
+        Environment: !Ref Environment
+
   ConvertToMp3Function:
     Type: AWS::Serverless::Function
     Properties:

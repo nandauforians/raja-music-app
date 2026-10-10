@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Loader2, Star } from 'lucide-react';
 import toast from 'react-hot-toast';
 import LyricsViewer from './components/LyricsViewer';
+import PosterStudioModal from './components/PosterStudioModal';
 import { parseLrc } from './utils/lyrics';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -26,6 +27,9 @@ export default function Admin() {
 
   const [suggestions, setSuggestions] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+
+  // Poster Studio Modal
+  const [posterModalSong, setPosterModalSong] = useState(null);
 
   // Karaoke Snippet Picker state
   const [showSnippetPicker, setShowSnippetPicker] = useState(false);
@@ -1017,9 +1021,16 @@ export default function Admin() {
                       </button>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex flex-col gap-2 items-end">
+                      <div className="flex flex-col gap-1.5 items-end">
                         <button onClick={() => setEditingSong(song)} className="text-blue-400 hover:text-blue-300 text-xs font-semibold">
                           Edit
+                        </button>
+                        <button 
+                          onClick={() => setPosterModalSong(song)} 
+                          className={`text-xs font-semibold flex items-center gap-1 ${song.poster_meta?.savedAt ? 'text-emerald-400 hover:text-emerald-300' : 'text-amber-400 hover:text-amber-300'}`}
+                          title={song.poster_meta?.savedAt ? "Poster saved to system. Click to view or share." : "Generate minimalist poster for this song"}
+                        >
+                          🎨 Poster {song.poster_meta?.savedAt && '✓'}
                         </button>
                         <button onClick={() => handleDelete(song.id)} className="text-red-400 hover:text-red-300 text-xs">
                           Delete
@@ -1151,6 +1162,17 @@ export default function Admin() {
                               title="Click to edit song details (AI description, etc.)"
                             >
                               Edit ✏️
+                            </button>
+                            <button
+                              onClick={() => setPosterModalSong(sObj)}
+                              className={`px-2.5 py-0.5 rounded-full font-semibold transition-colors flex items-center gap-1 shadow-sm border ${
+                                sObj.poster_meta?.savedAt
+                                  ? 'text-emerald-300 bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-500/40'
+                                  : 'text-amber-300 bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/40'
+                              }`}
+                              title={sObj.poster_meta?.savedAt ? "Poster saved to system. Click to view or share." : "Generate minimalist poster with AI and share to WhatsApp"}
+                            >
+                              🎨 Poster {sObj.poster_meta?.savedAt && '✓'}
                             </button>
                           </>
                         );
@@ -1396,7 +1418,17 @@ export default function Admin() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
           <div className="bg-neutral-900 border border-neutral-700 rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col p-6 animate-in fade-in zoom-in-95 max-h-[95vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6 border-b border-neutral-800 pb-4">
-              <h2 className="text-xl font-bold text-white">Edit Song</h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl font-bold text-white">Edit Song</h2>
+                <button
+                  type="button"
+                  onClick={() => setPosterModalSong(editingSong)}
+                  className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition"
+                  title="Generate minimalist poster with AI"
+                >
+                  🎨 Poster Studio
+                </button>
+              </div>
               <button onClick={() => setEditingSong(null)} className="text-neutral-500 hover:text-white transition text-2xl leading-none">&times;</button>
             </div>
             
@@ -1902,6 +1934,20 @@ export default function Admin() {
           </div>
         </div>
       )}
+
+      {/* ── POSTER STUDIO MODAL ──────────────────────────── */}
+      {posterModalSong && (
+        <PosterStudioModal
+          song={posterModalSong}
+          token={token}
+          apiBaseUrl={API_BASE_URL}
+          onClose={() => setPosterModalSong(null)}
+          onSaveSuccess={(songId, posterMeta) => {
+            setSongs(prev => prev.map(s => s.id === songId ? { ...s, poster_meta: posterMeta } : s));
+          }}
+        />
+      )}
     </div>
   );
 }
+

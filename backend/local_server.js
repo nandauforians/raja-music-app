@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config({ path: '../.env' });
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const lambdaFunctions = require('./lambda_functions');
 
 const app = express();
@@ -46,6 +47,16 @@ app.post('/admin/songs', async (req, res) => {
 
 app.post('/admin/generate-trivia', async (req, res) => {
   const result = await lambdaFunctions.generateAdminTrivia(createEvent(req));
+  sendResponse(res, result);
+});
+
+app.post('/admin/generate-poster-cue', async (req, res) => {
+  const result = await lambdaFunctions.generatePosterCue(createEvent(req));
+  sendResponse(res, result);
+});
+
+app.post('/admin/generate-poster-image', async (req, res) => {
+  const result = await lambdaFunctions.generatePosterImage(createEvent(req));
   sendResponse(res, result);
 });
 

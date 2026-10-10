@@ -231,3 +231,130 @@ exports.generateAdminTrivia = async (event) => {
   }
 };
 
+exports.generatePosterCue = async (event) => {
+  try {
+    await verifyAdminToken(event);
+
+    const body = JSON.parse(event.body || '{}');
+    const { title, movie, director, lyrics, customInstruction } = body;
+
+    if (!title) {
+      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'Song title is required' }) };
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'Gemini API key missing' }) };
+    }
+
+    const { GoogleGenAI } = require('@google/genai');
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+    const prompt = `You are a creative poster designer and Tamil cinema connoisseur.
+Analyze this Ilaiyaraaja song:
+- Title: "${title}"
+- Movie Context: "${movie || 'Unknown'}" (DO NOT reveal this movie name in the output hints or text!)
+- Music Director: "${director || 'Ilaiyaraaja'}"
+${lyrics ? `- Lyrics snippet: "${lyrics.substring(0, 1000)}"` : ''}
+${customInstruction ? `- Extra Instruction: "${customInstruction}"` : ''}
+
+Your task:
+1. "lyric_tamil": Select or polish a poetic, iconic 1 or 2 lines from the lyrics in Tamil script (Tamil Unicode).
+2. "lyric_tanglish": The exact same 1 or 2 lines in English/Tanglish phonetics.
+3. "movie_hint": Create an intriguing, cryptic 1-sentence hint/clue about the movie (e.g. plot clue, iconic dialogue reference, character nuance, or actor/director signature). CRITICAL RULE: NEVER mention the movie title under any circumstances! The viewer should have fun guessing the movie.
+4. "artwork_prompt": Write a concise, vivid prompt for a minimalist vector poster illustration. Style: clean minimalist vector art, flat design, cinematic mood, silhouettes, retro warm or twilight palette. NO text, NO movie titles, NO letters or fonts in the image.
+
+Respond ONLY with valid JSON having the exact keys:
+{
+  "lyric_tamil": "string",
+  "lyric_tanglish": "string",
+  "movie_hint": "string",
+  "artwork_prompt": "string"
+}`;
+
+    const res = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: { responseMimeType: 'application/json' }
+    });
+
+    const parsed = JSON.parse(res.text || '{}');
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: true, ...parsed })
+    };
+  } catch (error) {
+    return {
+      statusCode: error.message.startsWith('Unauthorized') ? 401 : 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: false, error: error.message })
+    };
+  }
+};
+
+exports.generatePosterImage = async (event) => {
+  try {
+    await verifyAdminToken(event);
+
+    const body = JSON.parse(event.body || '{}');
+    const { prompt } = body;
+
+    if (!prompt) {
+      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'Artwork prompt is required' }) };
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'Gemini API key missing' }) };
+    }
+
+    const { GoogleGenAI } = require('@google/genai');
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+    // Call gemini-2.5-flash-image
+    const enhancedPrompt = `${prompt}. Minimalist vector art, clean flat illustration, cinematic composition, aesthetic poster background, absolutely no text, no words, no letters.`;
+    const res = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: enhancedPrompt
+    });
+
+    const candidate = res.candidates && res.candidates[0];
+    let imageBase64 = null;
+    let mimeType = 'image/png';
+
+    if (candidate && candidate.content && candidate.content.parts) {
+      for (const part of candidate.content.parts) {
+        if (part.inlineData) {
+          imageBase64 = part.inlineData.data;
+          mimeType = part.inlineData.mimeType || 'image/png';
+          break;
+        }
+      }
+    }
+
+    if (!imageBase64) {
+      return {
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({ success: false, error: 'Model did not return image data' })
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        success: true,
+        mimeType,
+        imageBase64
+      })
+    };
+  } catch (error) {
+    return {
+      statusCode: error.message.startsWith('Unauthorized') ? 401 : 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: false, error: error.message })
+    };
+  }
+};
+
+

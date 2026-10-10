@@ -46,7 +46,7 @@ exports.getAdminGamification = async (event) => {
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, leaderboard }) };
   } catch (error) {
     console.error("getAdminGamification error:", error);
-    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: error.message }) };
+    return { statusCode: error.message.startsWith('Unauthorized') ? 401 : 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: error.message }) };
   }
 };
 
@@ -87,7 +87,7 @@ exports.adminPayout = async (event) => {
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, newTotal: user.totalPoints - amount }) };
   } catch (error) {
     console.error("adminPayout error:", error);
-    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: error.message }) };
+    return { statusCode: error.message.startsWith('Unauthorized') ? 401 : 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: error.message }) };
   }
 };
 

@@ -233,7 +233,7 @@ exports.getSongList = async (event) => {
     
     const db = await getDb();
     const songs = await db.collection("songs")
-      .find({})
+      .find({}, { projection: { 'poster_meta.backgroundImageBase64': 0 } })
       .skip(pageIndex * pageSize)
       .limit(pageSize)
       .toArray();
@@ -319,7 +319,7 @@ exports.addSong = async (event) => {
 
       if (normMovie) {
         // Fetch all songs with matching normalized movie
-        const allSongs = await db.collection("songs").find({}).toArray();
+        const allSongs = await db.collection("songs").find({}, { projection: { id: 1, title: 1, movie: 1, spotify_id: 1 } }).toArray();
         const sameMovieSongs = allSongs.filter(s => normalizeString(s.movie) === normMovie);
         
         let duplicateReason = null;

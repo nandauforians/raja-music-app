@@ -297,7 +297,29 @@ exports.generatePosterImage = async (event) => {
     await verifyAdminToken(event);
 
     const body = JSON.parse(event.body || '{}');
-    const { prompt } = body;
+    const { prompt, songId, action } = body;
+
+    // Support retrieving previously saved poster image on demand for a single song
+    if (action === 'get_saved' || (!prompt && songId)) {
+      const db = await getDb();
+      const song = await db.collection("songs").findOne({ id: String(songId) });
+      if (song && song.poster_meta && song.poster_meta.backgroundImageBase64) {
+        return {
+          statusCode: 200,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            success: true,
+            imageBase64: song.poster_meta.backgroundImageBase64,
+            mimeType: 'image/png'
+          })
+        };
+      }
+      return {
+        statusCode: 404,
+        headers: corsHeaders,
+        body: JSON.stringify({ success: false, error: 'No saved poster image found for this song' })
+      };
+    }
 
     if (!prompt) {
       return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'Artwork prompt is required' }) };

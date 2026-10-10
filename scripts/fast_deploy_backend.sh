@@ -14,14 +14,19 @@ node -c backend/handlers/admin.js
 node -c backend/handlers/songs.js
 echo "Syntax checks passed!"
 
+S3_BUCKET="aws-sam-cli-managed-default-samclisourcebucket-lq2v304r9wgr"
+ZIP_KEY="fast-deploy/backend-$(date +%s).zip"
+
 echo "Zipping backend directory..."
 cd backend
 rm -f ../backend.zip
 zip -rq ../backend.zip .
 cd ..
 
+echo "Uploading zip once to S3 ($S3_BUCKET)..."
+aws s3 cp backend.zip "s3://${S3_BUCKET}/${ZIP_KEY}" --region us-east-1
+
 echo "Fetching Lambda functions for ilayaraja-app stack..."
-# Fetch all PhysicalResourceIds for AWS::Lambda::Function resources in the stack
 FUNCTIONS=$(aws cloudformation list-stack-resources \
     --stack-name ilayaraja-app \
     --region us-east-1 \
@@ -29,21 +34,21 @@ FUNCTIONS=$(aws cloudformation list-stack-resources \
     --output text)
 
 FUNC_COUNT=$(echo "$FUNCTIONS" | wc -w)
-echo "Found $FUNC_COUNT functions to update."
-echo "Updating functions in parallel..."
+echo "Found $FUNC_COUNT functions to update from S3 in parallel..."
 
 for FUNC in $FUNCTIONS; do
     echo "Updating $FUNC..."
     aws lambda update-function-code \
         --function-name "$FUNC" \
-        --zip-file fileb://backend.zip \
+        --s3-bucket "$S3_BUCKET" \
+        --s3-key "$ZIP_KEY" \
         --region us-east-1 >/dev/null 2>&1 &
 done
 
 # Wait for all background updates to finish
 wait
 
-echo "Cleaning up..."
+echo "Cleaning up local zip..."
 rm -f backend.zip
 
 echo "==============================================="

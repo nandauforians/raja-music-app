@@ -114,7 +114,27 @@ export default function PosterStudioModal({ song, token, apiBaseUrl, onClose, on
 
   // Run on mount
   useEffect(() => {
-    generateCue(false);
+    if (song?.poster_meta?.savedAt && !backgroundImageBase64 && song?.id) {
+      setIsGeneratingArt(true);
+      fetch(`${apiBaseUrl}/admin/generate-poster-image`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ action: 'get_saved', songId: song.id })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.imageBase64) {
+          setBackgroundImageBase64(data.imageBase64);
+        }
+      })
+      .catch(err => console.warn('Could not load saved poster image:', err))
+      .finally(() => setIsGeneratingArt(false));
+    } else {
+      generateCue(false);
+    }
   }, [song?.id]);
 
   // 3. Canvas Rendering Engine

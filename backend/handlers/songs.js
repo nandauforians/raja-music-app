@@ -373,6 +373,20 @@ exports.updateSong = async (event) => {
     
     const { _id, id, ...updateFields } = body; // don't update immutable IDs
     
+    // Safeguard: Do not accidentally overwrite existing media URLs with empty strings from stale forms
+    const existingSong = await db.collection("songs").findOne({ id: songId });
+    if (existingSong) {
+      if (updateFields.karaoke_url === '' && existingSong.karaoke_url) {
+        delete updateFields.karaoke_url;
+      }
+      if (updateFields.original_url === '' && existingSong.original_url) {
+        delete updateFields.original_url;
+      }
+      if (updateFields.pitch_data_url === '' && existingSong.pitch_data_url) {
+        delete updateFields.pitch_data_url;
+      }
+    }
+
     await db.collection("songs").updateOne(
       { id: songId },
       { $set: updateFields }

@@ -5,6 +5,7 @@ import { Loader2, Star } from 'lucide-react';
 import toast from 'react-hot-toast';
 import LyricsViewer from './components/LyricsViewer';
 import PosterStudioModal from './components/PosterStudioModal';
+import SongSchedulePicker from './components/SongSchedulePicker';
 import { parseLrc } from './utils/lyrics';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -1066,27 +1067,10 @@ export default function Admin() {
           </p>
         </div>
         
-        <div className="mb-2">
-          <input 
-            type="text" 
-            placeholder="Search to filter dropdowns (by title or movie)..." 
-            value={scheduleSearchTerm}
-            onChange={(e) => setScheduleSearchTerm(e.target.value)}
-            className="w-full max-w-md px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white focus:outline-none focus:border-amber-500 transition-colors"
-          />
-        </div>
-
         <div className="grid gap-4">
           {scheduleDays.map(dateStr => {
             const scheduledForDay = schedule.find(s => s.dateISO8601 === dateStr);
             const isToday = dateStr === new Date().toISOString().split('T')[0];
-            
-            const filteredScheduleSongs = songs.filter(s => 
-              !scheduleSearchTerm || 
-              s.title.toLowerCase().includes(scheduleSearchTerm.toLowerCase()) || 
-              s.movie.toLowerCase().includes(scheduleSearchTerm.toLowerCase()) ||
-              (scheduledForDay && s.id === scheduledForDay.song_id) // Always include currently selected song
-            );
             
             return (
               <div key={dateStr} className={`bg-neutral-800 p-5 rounded-xl border flex items-center justify-between ${isToday ? 'border-amber-500/50 shadow-lg shadow-amber-500/10' : 'border-neutral-700'}`}>
@@ -1096,17 +1080,13 @@ export default function Admin() {
                 </div>
                 
                 <div className="flex-1 px-6">
-                  <div className="flex items-center gap-2 mb-1">
-                    <select 
-                      value={scheduledForDay?.song_id || ''} 
-                      onChange={(e) => handleScheduleSong(dateStr, e.target.value, scheduledForDay?.karaoke_enabled !== false)}
-                      className="w-full bg-neutral-900 border border-neutral-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-amber-500"
-                    >
-                      <option value="" disabled>Select a song to schedule...</option>
-                      {filteredScheduleSongs.map(s => (
-                        <option key={s.id} value={s.id}>{s.title} ({s.movie})</option>
-                      ))}
-                    </select>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <SongSchedulePicker
+                      dateStr={dateStr}
+                      selectedSongId={scheduledForDay?.song_id || ''}
+                      songs={songs}
+                      onSelectSong={(songId) => handleScheduleSong(dateStr, songId, scheduledForDay?.karaoke_enabled !== false)}
+                    />
                   </div>
                   {scheduledForDay && (
                     <div className="flex items-center gap-3 text-xs pl-1">

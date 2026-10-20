@@ -185,10 +185,26 @@ exports.getArchive = async (event) => {
     // Get all scheduled songs up to and including today
     const pastSchedules = await scheduleCol.find({ dateISO8601: { $lte: today } }).sort({ dateISO8601: -1 }).toArray();
     
+    // Batch fetch songs to avoid N+1 queries and exclude massive base64 payloads (>6MB AWS Lambda limit)
+    const songIds = pastSchedules.map(item => item.song_id).filter(Boolean);
+    const queryIds = Array.from(new Set([...songIds.map(String), ...songIds.map(Number)]));
+    
+    const songs = await songsCol.find(
+      { id: { $in: queryIds } },
+      { projection: { 'poster_meta.backgroundImageBase64': 0 } }
+    ).toArray();
+
+    const songMap = new Map();
+    for (const s of songs) {
+      songMap.set(String(s.id), s);
+    }
+    
     const results = [];
     for (const item of pastSchedules) {
-      let song = await songsCol.findOne({ id: item.song_id });
-      if (!song) continue;
+      const baseSong = songMap.get(String(item.song_id));
+      if (!baseSong) continue;
+      
+      const song = { ...baseSong };
       
       // Merge schedule overrides
       if (item.karaoke_enabled !== undefined) {
@@ -204,7 +220,6 @@ exports.getArchive = async (event) => {
           continue;
         }
       }
-      
       
       song.scheduled_date = item.dateISO8601;
       

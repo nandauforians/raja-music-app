@@ -179,62 +179,126 @@ exports.getArchive = async (event) => {
     const songsCol = db.collection("songs");
     
     // Parse query parameters
-    const search = (event.queryStringParameters && event.queryStringParameters.q) ? event.queryStringParameters.q.toLowerCase() : '';
+    const params = event.queryStringParameters || {};
+    const search = params.q ? params.q.trim().toLowerCase() : '';
+    const isAll = params.limit === 'all' || params.all === 'true';
+    const limit = isAll ? 500 : Math.min(50, Math.max(1, parseInt(params.limit || '10', 10) || 10));
+    const page = isAll ? 0 : Math.max(0, parseInt(params.page || '0', 10) || 0);
+    const offset = page * limit;
     const today = new Date().toISOString().split('T')[0];
     
     // Get all scheduled songs up to and including today
     const pastSchedules = await scheduleCol.find({ dateISO8601: { $lte: today } }).sort({ dateISO8601: -1 }).toArray();
-    
-    // Batch fetch songs to avoid N+1 queries and exclude massive base64 payloads (>6MB AWS Lambda limit)
-    const songIds = pastSchedules.map(item => item.song_id).filter(Boolean);
-    const queryIds = Array.from(new Set([...songIds.map(String), ...songIds.map(Number)]));
-    
-    const songs = await songsCol.find(
-      { id: { $in: queryIds } },
-      { projection: { 'poster_meta.backgroundImageBase64': 0 } }
-    ).toArray();
 
-    const songMap = new Map();
-    for (const s of songs) {
-      songMap.set(String(s.id), s);
-    }
-    
-    const results = [];
-    for (const item of pastSchedules) {
-      const baseSong = songMap.get(String(item.song_id));
-      if (!baseSong) continue;
+    if (search) {
+      // With search: fetch all candidate songs for past schedules to apply search filter across entire archive
+      const allSongIds = pastSchedules.map(item => item.song_id).filter(Boolean);
+      const queryIds = Array.from(new Set([...allSongIds.map(String), ...allSongIds.map(Number)]));
       
-      const song = { ...baseSong };
-      
-      // Merge schedule overrides
-      if (item.karaoke_enabled !== undefined) {
-        song.karaoke_enabled = item.karaoke_enabled;
+      const candidateSongs = await songsCol.find(
+        { id: { $in: queryIds } },
+        { projection: { 'poster_meta.backgroundImageBase64': 0 } }
+      ).toArray();
+
+      const songMap = new Map();
+      for (const s of candidateSongs) {
+        songMap.set(String(s.id), s);
       }
-      
-      // Apply search filter if provided
-      if (search) {
-        const titleMatch = song.title && song.title.toLowerCase().includes(search);
-        const movieMatch = song.movie && song.movie.toLowerCase().includes(search);
-        const yearMatch = song.year && song.year.toString().includes(search);
-        if (!titleMatch && !movieMatch && !yearMatch) {
-          continue;
+
+      const filteredItems = [];
+      for (const item of pastSchedules) {
+        const baseSong = songMap.get(String(item.song_id));
+        if (!baseSong) continue;
+        
+        const titleMatch = baseSong.title && baseSong.title.toLowerCase().includes(search);
+        const movieMatch = baseSong.movie && baseSong.movie.toLowerCase().includes(search);
+        const yearMatch = baseSong.year && baseSong.year.toString().includes(search);
+        const directorMatch = baseSong.director && baseSong.director.toLowerCase().includes(search);
+        const singersMatch = baseSong.singers && (Array.isArray(baseSong.singers) ? baseSong.singers.join(' ') : String(baseSong.singers)).toLowerCase().includes(search);
+        
+        if (titleMatch || movieMatch || yearMatch || directorMatch || singersMatch) {
+          filteredItems.push({ schedule: item, baseSong });
         }
       }
-      
-      song.scheduled_date = item.dateISO8601;
-      
-      if (song.original_url) song.original_url = signCloudFrontUrl(song.original_url);
-      if (song.karaoke_url) song.karaoke_url = signCloudFrontUrl(song.karaoke_url);
-      if (song.pitch_data_url) song.pitch_data_url = signCloudFrontUrl(song.pitch_data_url);
-      
-      results.push(song);
+
+      const total = filteredItems.length;
+      const pagedItems = filteredItems.slice(offset, offset + limit);
+
+      const results = pagedItems.map(({ schedule, baseSong }) => {
+        const song = { ...baseSong };
+        if (schedule.karaoke_enabled !== undefined) {
+          song.karaoke_enabled = schedule.karaoke_enabled;
+        }
+        song.scheduled_date = schedule.dateISO8601;
+        if (song.original_url) song.original_url = signCloudFrontUrl(song.original_url);
+        if (song.karaoke_url) song.karaoke_url = signCloudFrontUrl(song.karaoke_url);
+        if (song.pitch_data_url) song.pitch_data_url = signCloudFrontUrl(song.pitch_data_url);
+        return song;
+      });
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: true,
+          count: results.length,
+          total,
+          page,
+          limit,
+          hasMore: offset + results.length < total,
+          archive: results
+        })
+      };
+    } else {
+      // Without search: slice pastSchedules first, then only fetch the songs needed for this page!
+      const total = pastSchedules.length;
+      const pagedSchedules = pastSchedules.slice(offset, offset + limit);
+
+      const songIds = pagedSchedules.map(item => item.song_id).filter(Boolean);
+      const queryIds = Array.from(new Set([...songIds.map(String), ...songIds.map(Number)]));
+
+      const songs = await songsCol.find(
+        { id: { $in: queryIds } },
+        { projection: { 'poster_meta.backgroundImageBase64': 0 } }
+      ).toArray();
+
+      const songMap = new Map();
+      for (const s of songs) {
+        songMap.set(String(s.id), s);
+      }
+
+      const results = [];
+      for (const item of pagedSchedules) {
+        const baseSong = songMap.get(String(item.song_id));
+        if (!baseSong) continue;
+
+        const song = { ...baseSong };
+        if (item.karaoke_enabled !== undefined) {
+          song.karaoke_enabled = item.karaoke_enabled;
+        }
+        song.scheduled_date = item.dateISO8601;
+
+        if (song.original_url) song.original_url = signCloudFrontUrl(song.original_url);
+        if (song.karaoke_url) song.karaoke_url = signCloudFrontUrl(song.karaoke_url);
+        if (song.pitch_data_url) song.pitch_data_url = signCloudFrontUrl(song.pitch_data_url);
+
+        results.push(song);
+      }
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: true,
+          count: results.length,
+          total,
+          page,
+          limit,
+          hasMore: offset + results.length < total,
+          archive: results
+        })
+      };
     }
-    
-    return { 
-      statusCode: 200, 
-      headers: corsHeaders, 
-      body: JSON.stringify({ success: true, count: results.length, archive: results }) 
-    };
   } catch (error) {
     console.error('Error in getArchive:', error);
     return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ success: false, error: error.message }) };

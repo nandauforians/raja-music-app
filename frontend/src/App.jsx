@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
-import { Music, Calendar, Share2, Heart, MessageCircle, Mic, Headphones, User, Users, LogOut, Award, Play, Star, ChevronRight, Info, Disc, Search, Trophy, Pause, FastForward, Loader2 } from 'lucide-react';
+import { Music, Calendar, Share2, Heart, MessageCircle, Mic, Headphones, User, Users, LogOut, Award, Play, Star, ChevronRight, ChevronDown, Info, Disc, Search, Trophy, Pause, FastForward, Loader2 } from 'lucide-react';
 import { GoogleLogin, googleLogout } from '@react-oauth/google';
 import { jwtDecode } from 'jwt-decode';
 import Admin from './Admin';
@@ -63,6 +63,10 @@ export default function IlayarajaApp() {
   const [archiveSongs, setArchiveSongs] = useState([]);
   const [archiveSearch, setArchiveSearch] = useState('');
   const [archiveLoading, setArchiveLoading] = useState(false);
+  const [archiveLoadingMore, setArchiveLoadingMore] = useState(false);
+  const [archivePage, setArchivePage] = useState(0);
+  const [archiveTotal, setArchiveTotal] = useState(0);
+  const [archiveHasMore, setArchiveHasMore] = useState(false);
 
   // Play-D-List State
   const [isPlayDListActive, setIsPlayDListActive] = useState(false);
@@ -92,10 +96,12 @@ export default function IlayarajaApp() {
     if (songsToUse.length === 0) {
       setArchiveLoading(true);
       try {
-        const res = await fetch(`${API_BASE_URL}/song/archive`);
+        const res = await fetch(`${API_BASE_URL}/song/archive?limit=all`);
         const data = await res.json();
         if (data.success) {
           setArchiveSongs(data.archive);
+          setArchiveTotal(data.total || data.archive.length);
+          setArchiveHasMore(false);
           songsToUse = data.archive;
         }
       } catch (err) {
@@ -620,43 +626,64 @@ export default function IlayarajaApp() {
     }
   };
 
-  const fetchArchive = useCallback(async () => {
-    if (archiveSongs.length > 0) return; // Cache locally
-    setArchiveLoading(true);
+  const fetchArchive = useCallback(async (page = 0, query = '', isLoadMore = false) => {
+    if (isLoadMore) {
+      setArchiveLoadingMore(true);
+    } else {
+      setArchiveLoading(true);
+    }
     try {
-      const endpoint = `${API_BASE_URL}/song/archive`;
+      const qParam = query.trim() ? `&q=${encodeURIComponent(query.trim())}` : '';
+      const endpoint = `${API_BASE_URL}/song/archive?page=${page}&limit=10${qParam}`;
       const res = await fetch(endpoint);
       const data = await res.json();
       if (data.success) {
-        setArchiveSongs(data.archive);
+        if (isLoadMore) {
+          setArchiveSongs(prev => [...prev, ...data.archive]);
+        } else {
+          setArchiveSongs(data.archive);
+        }
+        setArchivePage(page);
+        setArchiveTotal(data.total || 0);
+        setArchiveHasMore(Boolean(data.hasMore));
       }
     } catch (err) {
       console.error("Error fetching archive:", err);
     } finally {
-      setArchiveLoading(false);
+      if (isLoadMore) {
+        setArchiveLoadingMore(false);
+      } else {
+        setArchiveLoading(false);
+      }
     }
-  }, [archiveSongs.length]);
+  }, []);
+
+  const hasLoadedInitialArchive = useRef(false);
 
   useEffect(() => {
-    if (currentView === 'archive') {
-      fetchArchive();
+    if (currentView === 'archive' && !hasLoadedInitialArchive.current) {
+      hasLoadedInitialArchive.current = true;
+      fetchArchive(0, '', false);
     }
   }, [currentView, fetchArchive]);
 
-  // Derived state for client-side search
-  const filteredArchiveSongs = useMemo(() => {
-    if (!archiveSearch.trim()) return archiveSongs;
-    const lowerQ = archiveSearch.toLowerCase();
-    return archiveSongs.filter(song => 
-      song.title?.toLowerCase().includes(lowerQ) ||
-      song.movie?.toLowerCase().includes(lowerQ) ||
-      song.director?.toLowerCase().includes(lowerQ) ||
-      song.year?.toString().includes(lowerQ)
-    );
-  }, [archiveSongs, archiveSearch]);
+  // Debounced search when user types in archive view
+  useEffect(() => {
+    if (currentView !== 'archive' || !hasLoadedInitialArchive.current) return;
+    const timer = setTimeout(() => {
+      fetchArchive(0, archiveSearch, false);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [archiveSearch, currentView, fetchArchive]);
 
   const handleArchiveSearch = (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+    fetchArchive(0, archiveSearch, false);
+  };
+
+  const handleLoadMore = () => {
+    if (archiveLoadingMore || !archiveHasMore) return;
+    fetchArchive(archivePage + 1, archiveSearch, true);
   };
 
   // --- LRC Parser ---
@@ -1651,51 +1678,117 @@ export default function IlayarajaApp() {
         </main>
       ) : currentView === 'archive' ? (
         <main className="relative z-10 w-full min-h-[calc(100vh-88px)] px-6 lg:px-24 py-8 overflow-y-auto custom-scrollbar">
-          <h2 className="text-3xl font-bold text-white mb-8 border-b border-zinc-800 pb-4 flex items-center gap-3">
-            <Calendar className="w-8 h-8 text-amber-500" /> Archive
-          </h2>
-          <div className="w-full max-w-4xl">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
-              <h2 className="text-3xl font-bold text-white tracking-tight">Archive</h2>
-              <form onSubmit={handleArchiveSearch} className="w-full sm:w-auto flex items-center bg-zinc-900/80 border border-zinc-700/50 rounded-full px-4 py-2">
+          <div className="w-full max-w-5xl mx-auto">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 border-b border-zinc-800 pb-5">
+              <div>
+                <h2 className="text-3xl font-bold text-white tracking-tight flex items-center gap-3">
+                  <Calendar className="w-8 h-8 text-amber-500" /> Archive
+                </h2>
+                <p className="text-sm text-zinc-400 mt-1">
+                  Revisit past songs of the day & karaoke tracks
+                </p>
+              </div>
+              <form onSubmit={handleArchiveSearch} className="w-full sm:w-auto flex items-center bg-zinc-900/80 border border-zinc-700/50 rounded-full px-4 py-2 focus-within:border-amber-500/50 transition-colors shadow-inner">
+                <Search className="w-4 h-4 text-zinc-500 mr-2 shrink-0" />
                 <input
                   type="text"
-                  placeholder="Search movie, year, title..."
+                  placeholder="Search movie, year, title, singers..."
                   value={archiveSearch}
                   onChange={(e) => setArchiveSearch(e.target.value)}
                   className="bg-transparent text-white placeholder-zinc-500 outline-none text-sm w-full sm:w-64"
                 />
-                <button type="submit" className="ml-2 text-zinc-400 hover:text-amber-500">
+                {archiveSearch && (
+                  <button 
+                    type="button" 
+                    onClick={() => setArchiveSearch('')} 
+                    className="text-zinc-500 hover:text-white text-xs mr-2 transition-colors"
+                  >
+                    Clear
+                  </button>
+                )}
+                <button type="submit" className="text-xs font-semibold px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black rounded-full transition-colors">
                   Search
                 </button>
               </form>
             </div>
             
             {archiveLoading ? (
-              <div className="text-center text-zinc-500 mt-20 animate-pulse">Loading archive...</div>
-            ) : filteredArchiveSongs.length === 0 ? (
-              <div className="text-center text-zinc-500 mt-20">No songs found in the archive.</div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredArchiveSongs.map((archivedSong, idx) => (
-                  <div key={idx} onClick={() => { setVoiceAutoPlay(false); setSong(archivedSong); setCurrentView('today'); setMode('original'); }} className="group bg-zinc-900/60 border border-zinc-800 rounded-xl overflow-hidden cursor-pointer hover:bg-zinc-800/80 hover:border-zinc-600 transition-all shadow-xl">
-                    <div className="p-5 flex flex-col gap-3">
-                      <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-widest text-zinc-500">
-                        <span>{new Date(archivedSong.scheduled_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                        <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center group-hover:bg-amber-500 group-hover:text-black transition-colors">
-                          <Music className="w-3.5 h-3.5" />
-                        </div>
-                      </div>
-                      <h3 className="text-xl font-bold text-zinc-100 group-hover:text-amber-400 transition-colors leading-tight line-clamp-2">
-                        {archivedSong.title}
-                      </h3>
-                      <p className="text-sm text-zinc-400 group-hover:text-zinc-300 transition-colors">
-                        {archivedSong.movie} ({archivedSong.year}) {archivedSong.raga && archivedSong.raga !== 'Unknown' && archivedSong.raga !== 'Western/Folk' ? `| Raga: ${archivedSong.raga}` : ''}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+              <div className="flex flex-col items-center justify-center py-24 gap-3 text-zinc-400">
+                <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+                <span className="text-sm">Loading archive...</span>
               </div>
+            ) : archiveSongs.length === 0 ? (
+              <div className="text-center py-24 text-zinc-500">
+                <Music className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p className="text-base font-medium text-zinc-400">No songs found in the archive.</p>
+                {archiveSearch && (
+                  <button 
+                    onClick={() => setArchiveSearch('')} 
+                    className="mt-3 text-xs text-amber-400 hover:underline"
+                  >
+                    Clear search filter
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {archiveSongs.map((archivedSong, idx) => (
+                    <div 
+                      key={idx} 
+                      onClick={() => { setVoiceAutoPlay(false); setSong(archivedSong); setCurrentView('today'); setMode('original'); }} 
+                      className="group bg-zinc-900/60 border border-zinc-800 rounded-xl overflow-hidden cursor-pointer hover:bg-zinc-800/80 hover:border-zinc-600 transition-all shadow-xl hover:-translate-y-0.5"
+                    >
+                      <div className="p-5 flex flex-col gap-3">
+                        <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-widest text-zinc-500">
+                          <span>{new Date(archivedSong.scheduled_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                          <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center group-hover:bg-amber-500 group-hover:text-black transition-colors">
+                            <Music className="w-3.5 h-3.5" />
+                          </div>
+                        </div>
+                        <h3 className="text-xl font-bold text-zinc-100 group-hover:text-amber-400 transition-colors leading-tight line-clamp-2">
+                          {archivedSong.title}
+                        </h3>
+                        <p className="text-sm text-zinc-400 group-hover:text-zinc-300 transition-colors">
+                          {archivedSong.movie} ({archivedSong.year}) {archivedSong.raga && archivedSong.raga !== 'Unknown' && archivedSong.raga !== 'Western/Folk' ? `| Raga: ${archivedSong.raga}` : ''}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Load More Button */}
+                {archiveHasMore && (
+                  <div className="flex justify-center mt-10">
+                    <button
+                      onClick={handleLoadMore}
+                      disabled={archiveLoadingMore}
+                      className="flex items-center gap-2.5 px-6 py-3 rounded-full bg-zinc-900/90 hover:bg-zinc-800 active:scale-95 text-amber-400 font-semibold text-sm border border-zinc-700 hover:border-amber-500/50 transition-all shadow-lg hover:shadow-amber-500/10 disabled:opacity-50"
+                    >
+                      {archiveLoadingMore ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                          <span>Loading more songs...</span>
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="w-4 h-4" />
+                          <span>Load More Songs ({archiveSongs.length} of {archiveTotal})</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* Reached End of Archive Banner */}
+                {!archiveHasMore && archiveSongs.length > 0 && !archiveLoading && (
+                  <div className="text-center text-zinc-500 text-xs mt-12 mb-4 uppercase tracking-widest flex items-center justify-center gap-3">
+                    <span className="w-12 h-[1px] bg-zinc-800"></span>
+                    <span>You've reached the beginning of the archive</span>
+                    <span className="w-12 h-[1px] bg-zinc-800"></span>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </main>
